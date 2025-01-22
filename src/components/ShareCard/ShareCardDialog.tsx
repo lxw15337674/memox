@@ -25,6 +25,7 @@ import {
 import { Download } from 'lucide-react';
 import { createApi } from 'unsplash-js';
 import { Random } from 'unsplash-js/dist/methods/photos/types';
+import { getRandomImage } from "../../api/imageActions";
 
 const ShardCards = [
     {
@@ -43,18 +44,6 @@ const ShardCards = [
 
 const userName = process.env.USERNAME ?? 'Bhwa233'
 
-const getRandomImage = async () => {
-    const unsplash = createApi({
-        accessKey: process.env.UNSPLASH_ACCESS_CODE!,
-    });
-    const res = await unsplash.photos.getRandom({
-        query: 'wallpapers',
-        orientation: 'landscape',
-    }).catch((e: any) => {
-        console.error(e);
-    });
-    return (res?.response as Random)?.urls?.regular;
-};
 
 const imageDownload = async (card: HTMLDivElement) => {
     if (!card) return;

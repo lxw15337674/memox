@@ -51,7 +51,7 @@ export const getMemosDataActions = async ({ filter, desc = Desc.DESC, page = 1 }
     try {
         const data = await getRecordsActions({
             desc,
-            page_size: 20,
+            page_size: 30,
             page,
             filter
         });

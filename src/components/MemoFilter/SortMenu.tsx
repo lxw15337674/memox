@@ -28,14 +28,14 @@ export function SortMenu() {
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent suppressHydrationWarning>
-                <DropdownMenuItem onClick={() => setDesc(Desc.RANDOM)}>
-                    乱序排列
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setDesc(Desc.ASC)}>
                     时间升序排列
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setDesc(Desc.DESC)}>
                     时间降序排列
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDesc(Desc.RANDOM)}>
+                    乱序排列
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

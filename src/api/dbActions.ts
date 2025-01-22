@@ -288,3 +288,72 @@ export const clearAllDataAction = async () => {
         throw error;
     }
 };
+
+export const deleteTagAction = async (tagName: string) => {
+    const tag = await prisma.tag.delete({
+        where: {
+            name: tagName,
+        },
+    });
+    return tag;
+};
+
+export const updateTagAction = async (oldName: string, newName: string) => {
+    const updatedTag = await prisma.$transaction(async (tx) => {
+        // First check if the new name already exists
+        const existingTag = await tx.tag.findUnique({
+            where: { name: newName }
+        });
+
+        if (existingTag) {
+            throw new Error('Tag with this name already exists');
+        }
+
+        // Get all memos that have the old tag
+        const memosWithOldTag = await tx.memo.findMany({
+            where: {
+                tags: {
+                    some: {
+                        name: oldName
+                    }
+                }
+            },
+            include: {
+                tags: true
+            }
+        });
+
+        // Delete the old tag
+        await tx.tag.delete({
+            where: { name: oldName }
+        });
+
+        // Create the new tag
+        const newTag = await tx.tag.create({
+            data: { name: newName }
+        });
+
+        // Update all memos to use the new tag
+        await Promise.all(
+            memosWithOldTag.map((memo) =>
+                tx.memo.update({
+                    where: { id: memo.id },
+                    data: {
+                        tags: {
+                            connect: [
+                                ...memo.tags
+                                    .filter((tag) => tag.name !== oldName)
+                                    .map((tag) => ({ id: tag.id })),
+                                { id: newTag.id }
+                            ]
+                        }
+                    }
+                })
+            )
+        );
+
+        return newTag;
+    });
+
+    return updatedTag;
+};

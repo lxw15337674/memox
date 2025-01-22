@@ -9,16 +9,18 @@ import { format } from 'date-fns';
 
 export const getRecordsActions = async (config: {
     page_size?: number;
+    page?: number;
     filter?: Filter;
     desc?: Desc;
 }) => {
-    const { page_size = 200, filter, desc = Desc.DESC } = config;
+    const { page_size = 20, page = 1, filter, desc = Desc.DESC } = config;
     try {
         const where = filter ? buildWhereClause(filter) : {};
 
         const [items, total] = await Promise.all([
             prisma.memo.findMany({
                 take: page_size,
+                skip: (page - 1) * page_size,
                 where,
                 orderBy: {
                     createdAt: desc ? 'desc' : 'asc'
@@ -41,14 +43,16 @@ export const getRecordsActions = async (config: {
     }
 };
 
-export const getMemosDataActions = async ({ filter, desc = Desc.DESC }: {
+export const getMemosDataActions = async ({ filter, desc = Desc.DESC, page = 1 }: {
     filter?: Filter;
     desc?: Desc;
+    page?: number;
 } = {}) => {
     try {
         const data = await getRecordsActions({
             desc,
-            page_size: 20 * 3,
+            page_size: 20,
+            page,
             filter
         });
         return data;
@@ -225,13 +229,15 @@ export const getTagsWithCountAction = async () => {
                     memos: true // 统计与每个标签关联的 memos 数量
                 }
             }
-        }
+        },
     });
 
-    return tagsWithCount.map(tag => ({
-        ...tag,
-        memoCount: tag._count.memos
-    }));
+    return tagsWithCount
+        .map(tag => ({
+            ...tag,
+            memoCount: tag._count.memos
+        }))
+        .sort((a, b) => b.memoCount - a.memoCount); // Sort by memoCount in descending order
 };
 
 

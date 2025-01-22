@@ -12,6 +12,7 @@ interface MemoStore {
     items: Note[];
     total: number;
   };
+  currentPage: number;
   fetchInitData: () => Promise<void>;
   fetchPagedData: () => Promise<void>;
   removeMemo: (id: string) => number;
@@ -24,6 +25,7 @@ const useMemoStore = create<MemoStore>()(
     persist(
       immer((set, get) => ({
         memos: [],
+        currentPage: 1,
         databases: {
           has_more: false,
           items: [],
@@ -58,7 +60,8 @@ const useMemoStore = create<MemoStore>()(
         fetchInitData: async () => {
           const response = await getMemosDataActions({
             filter: useFilterStore.getState().filterParams,
-            desc: useFilterStore.getState().desc
+            desc: useFilterStore.getState().desc,
+            page: 1
           });
           if (response) {
             const databases = {
@@ -69,14 +72,17 @@ const useMemoStore = create<MemoStore>()(
             set((state) => {
               state.databases = databases;
               state.memos = databases.items;
+              state.currentPage = 1;
             });
           }
         },
         // 获取分页数据
         fetchPagedData: async () => {
+          const nextPage = get().currentPage + 1;
           const response = await getMemosDataActions({
             filter: useFilterStore.getState().filterParams,
-            desc: useFilterStore.getState().desc
+            desc: useFilterStore.getState().desc,
+            page: nextPage
           });
           if (response) {
             const databases = {
@@ -87,6 +93,7 @@ const useMemoStore = create<MemoStore>()(
             set((state) => {
               state.databases = databases;
               state.memos.push(...databases.items);
+              state.currentPage = nextPage;
             });
           }
         },

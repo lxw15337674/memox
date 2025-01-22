@@ -46,7 +46,6 @@ export const parseExcelData = (data: ArrayBuffer): NewMemo[] => {
         };
         if (row.images) {
             memo.images = row.images?.split(',').map((image: string) => image.trim()) || [];
-            console.log(memo.images)
         }
         if (row.link) {
             const linkData: LinkType = {

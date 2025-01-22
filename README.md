@@ -55,7 +55,7 @@ Create a `.env` file in the root directory with the following variables:
 DATABASE_URL="your-postgresql-connection-string"
 AI_API_KEY="your-ai-api-key"
 AI_BASE_URL="your-ai-base-url"
-EDIT_CODE="your-edit-code"
+ACCESS_CODE="your-edit-code"
 ```
 
 4. **Initialize database**

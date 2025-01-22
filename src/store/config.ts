@@ -23,10 +23,8 @@ interface SettingStore {
     resetAllConfig: () => void;
     setConfig: (callback: (config: Config) => void) => void;
     setAccessCodePermission: (accessCode: string) => Promise<boolean>;
-    setEditCodePermission: (editCode: string) => Promise<boolean>;
     validateAccessCode: () => Promise<boolean>;
     hasAccessCodePermission: boolean;
-    hasEditCodePermission: boolean;
     setShowEditor: (show: boolean) => void;
 }
 
@@ -46,8 +44,7 @@ const useConfigStore = create<SettingStore>()(
         persist(immer<SettingStore>(
             (set, get) => ({
                 config: defaultConfig,
-                hasAccessCodePermission: process.env.EDIT_CODE === undefined,
-                hasEditCodePermission: process.env.EDIT_CODE === undefined,
+                hasAccessCodePermission: process.env.ACCESS_CODE === undefined,
                 resetCodeConfig: () => {
                     set((state) => {
                         state.config.codeConfig = { ...defaultConfig.codeConfig }
@@ -90,16 +87,6 @@ const useConfigStore = create<SettingStore>()(
                     }
                     return hasAccessCodePermission
                 },
-                setEditCodePermission: async (code) => {
-                    const hasEditCodePermission = await validateEditCode(code)
-                    if (hasEditCodePermission) {
-                        set((state) => {
-                            state.config.codeConfig.editCode = code
-                            state.hasEditCodePermission = true
-                        })
-                    }
-                    return hasEditCodePermission
-                }
             })),
             {
                 name: 'configStore',

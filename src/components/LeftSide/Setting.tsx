@@ -16,7 +16,6 @@ import useConfigStore from '@/store/config';
 import PasswordInput from '../PasswordInput';
 import { Separator } from '../ui/separator';
 import { useRouter } from 'next/navigation';
-import { useThrottleFn } from 'ahooks';
 import { useToast } from '../ui/use-toast';
 import { useState } from 'react';
 import { downloadFile, uploadFile } from '../../utils/file';
@@ -37,28 +36,9 @@ import {
 } from "@/components/ui/alert-dialog"
 
 export function Setting() {
-    const { config, setConfig, resetGeneralConfig, setEditCodePermission } = useConfigStore()
+    const { config, setConfig, resetGeneralConfig } = useConfigStore()
     const { toast } = useToast()
     const [editCode, setEditCode] = useState(config.codeConfig.editCode)
-    const { run: debounceSetEditCodePermission } = useThrottleFn(async () => {
-        const hasEditCodePermission = await setEditCodePermission(editCode)
-        if (hasEditCodePermission) {
-            toast({
-                title: "密码正确",
-                description: "已获得编辑权限",
-                duration: 1000
-            })
-            return
-        } else {
-            toast({
-                variant: "destructive",
-                title: "密码错误",
-                description: "请检查密码是否正确",
-                duration: 1000
-            })
-            return
-        }
-    }, { wait: 500 })
     const router = useRouter()
     const { importData, memos, importedMemos, loading } = useImportMemos()
 
@@ -189,9 +169,6 @@ export function Setting() {
                             setEditCode(e.target.value)
                         }} />
                     </div>
-                    <Button type="submit" className="w-full" onClick={debounceSetEditCodePermission}>
-                        校验编辑密码
-                    </Button>
                     <Button type="submit" className="w-full" variant="destructive" onClick={() => {
                         resetGeneralConfig()
                         router.push('/login')

@@ -142,6 +142,16 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
           <div className='flex items-center border-t py-2 gap-1'>
             <div className="flex items-center gap-1">
               <ToolbarButton
+                icon={Icon.Hash}
+                title='插入标签'
+                onClick={() => {
+                  if (!editorRef) {
+                    return
+                  }
+                  replaceText('#', editorRef?.selectionStart, editorRef?.selectionStart, 0)
+                }}
+              />
+              <ToolbarButton
                 icon={Icon.ClipboardPaste}
                 title='粘贴剪切板内容'
                 onClick={() => {

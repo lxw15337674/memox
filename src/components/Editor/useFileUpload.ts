@@ -5,6 +5,7 @@ import { uploadToGalleryServer } from '../../api/upload';
 const FILE_UPLOAD_CONFIG = {
     MAX_FILES: 9,
     ACCEPTED_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    MAX_FILE_SIZE: 4.5 * 1024 * 1024, // 4.5MB in bytes
 } as const;
 
 const ERROR_MESSAGES = {
@@ -12,7 +13,10 @@ const ERROR_MESSAGES = {
         title: '最多上传9张图片',
         description: '请删除部分图片后再上传'
     },
-
+    FILE_SIZE: {
+        title: '文件大小超出限制',
+        description: '单个文件最大支持4.5MB'
+    },
     FILE_TYPE: {
         title: '仅支持图片文件',
         description: '请重新选择文件'
@@ -48,6 +52,10 @@ export const useFileUpload = (defaultImages: string[] = []) => {
         }
         if (!FILE_UPLOAD_CONFIG.ACCEPTED_TYPES.includes(file.type as typeof FILE_UPLOAD_CONFIG.ACCEPTED_TYPES[number])) {
             toast({ ...ERROR_MESSAGES.FILE_TYPE, variant: 'destructive' });
+            return false;
+        }
+        if (file.size > FILE_UPLOAD_CONFIG.MAX_FILE_SIZE) {
+            toast({ ...ERROR_MESSAGES.FILE_SIZE, variant: 'destructive' });
             return false;
         }
         return true;

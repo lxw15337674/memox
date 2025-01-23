@@ -7,29 +7,26 @@ export async function uploadToGalleryServer(
     file: File,
 ): Promise<string | null> {
     try {
-        // Convert File to Buffer
-        const arrayBuffer = await file.arrayBuffer();
-        const mediaBuffer = Buffer.from(arrayBuffer);
-
-        // Compress image using Sharp
-        const mainBuffer = await sharp(mediaBuffer)
-            .avif({ quality: 90 })
-            .toBuffer();
-
-
         const formData = new FormData();
-        formData.append('file', new Blob([mainBuffer], { type: 'image/avif' }), 'img.avif');
+        formData.append('file', file);
 
-        const response = await axios.post(`${GALLERY_URL}/upload`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
+        const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
         });
 
-        if (!response.data[0]?.src) {
-            throw new Error('上传响应缺少文件URL');
+        if (!response.ok) {
+            throw new Error('Upload failed');
         }
-        console.log(`上传成功，图片压缩: ${(file.size / 1024 / 1024).toFixed(2)}MB -> ${(mainBuffer.length / 1024 / 1024).toFixed(2)}MB (${((1 - mainBuffer.length / file.size) * 100).toFixed(2)}%)`);
-        const url = `${GALLERY_URL}${response.data[0].src}`;
-        return url;
+
+        const data = await response.json();
+
+        if (!data.url) {
+            throw new Error('Upload response missing file URL');
+        }
+
+        console.log(`上传成功，图片压缩: ${(data.stats.originalSize / 1024 / 1024).toFixed(2)}MB -> ${(data.stats.compressedSize / 1024 / 1024).toFixed(2)}MB (${data.stats.compressionRatio}%)`);
+        return data.url;
     } catch (error) {
         console.error(`文件上传失败: ${error}`);
         return null;

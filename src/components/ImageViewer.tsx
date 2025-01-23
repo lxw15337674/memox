@@ -16,13 +16,12 @@ interface ImageProps {
 }
 
 const ImageViewer: React.FC<ImageProps> = ({ alt, src = '', onDelete, className, loading, height, width }) => {
-    console.log(src)
     if (!src) {
         return null
     }
     return (
         <PhotoView src={src}>
-            <div className={`relative rounded-lg overflow-hidden h-full w-full group `}>
+            <div className={`relative rounded-lg overflow-hidden  group `}>
                 <img
                     src={src}
                     alt={alt}

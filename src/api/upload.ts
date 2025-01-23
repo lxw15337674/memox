@@ -1,3 +1,5 @@
+'use server';
+
 import axios from "axios";
 
 const GALLERY_URL = 'https://gallery233.pages.dev';
@@ -19,8 +21,11 @@ export async function uploadToGalleryServer(
 
         const url = `${response.data[0].src}`;
         return url;
-    } catch (error) {
-        console.error(`文件上传失败: ${error}`);
+    } catch (error: any) {
+        console.error(`File upload failed: ${error.message}`);
+        if (error.response?.status === 403) {
+            console.error('CORS error: Access forbidden');
+        }
         return null;
     }
 }

@@ -116,26 +116,13 @@ const MemoView = ({
         />
       </div>
       {images.length > 0 && (
-        <div className={`grid auto-rows-fr gap-2 mt-2 ${images.length === 1 ? 'grid-cols-1' :
-          images.length === 2 ? 'grid-cols-2' :
-            images.length === 3 ? 'grid-cols-2 md:grid-cols-3' :
-              images.length === 4 ? 'grid-cols-2' :
-                'grid-cols-2 md:grid-cols-3'
-          }`}>
-          {images.map((image, index) => (
-            <div
-              key={image}
-              className={`relative ${images.length === 3 && index === 0 ? 'md:col-span-2' :
-                images.length === 4 && index === 0 ? 'col-span-2' :
-                  ''
-                } aspect-square w-full`}
-            >
+        <div className="grid grid-cols-2 gap-1 mt-2">
+          {images.map((image) => (
               <ImageViewer
-                src={image}
-                alt={image}
-                className="absolute inset-0 w-full h-full object-cover rounded"
-              />
-            </div>
+              key={image}
+              src={image}
+              alt={image}
+            />
           ))}
         </div>
       )}

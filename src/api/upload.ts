@@ -17,10 +17,9 @@ export async function uploadToGalleryServer(
             .avif({ quality: 90 })
             .toBuffer();
 
-        console.log(`图片压缩: ${(file.size / 1024 / 1024).toFixed(2)}MB -> ${(mainBuffer.length / 1024 / 1024).toFixed(2)}MB (${((1 - mainBuffer.length / file.size) * 100).toFixed(2)}%)`);
 
         const formData = new FormData();
-        formData.append('file', new Blob([mainBuffer], { type: 'image/avif' }));
+        formData.append('file', new Blob([mainBuffer], { type: 'image/avif' }), 'img.avif');
 
         const response = await axios.post(`${GALLERY_URL}/upload`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
@@ -29,7 +28,7 @@ export async function uploadToGalleryServer(
         if (!response.data[0]?.src) {
             throw new Error('上传响应缺少文件URL');
         }
-
+        console.log(`上传成功，图片压缩: ${(file.size / 1024 / 1024).toFixed(2)}MB -> ${(mainBuffer.length / 1024 / 1024).toFixed(2)}MB (${((1 - mainBuffer.length / file.size) * 100).toFixed(2)}%)`);
         const url = `${GALLERY_URL}${response.data[0].src}`;
         return url;
     } catch (error) {

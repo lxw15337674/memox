@@ -27,7 +27,7 @@ export function SortMenu() {
                     <Icon.ChevronDown className="w-4 h-auto ml-1" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent suppressHydrationWarning>
+            <DropdownMenuContent >
                 <DropdownMenuItem onClick={() => setDesc(Desc.DESC)}>
                     时间降序排列
                 </DropdownMenuItem>

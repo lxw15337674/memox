@@ -109,7 +109,7 @@ export function Setting() {
     return (
         <Dialog>
             <DialogTrigger asChild>
-                <Button variant="outline" size="icon" suppressHydrationWarning>
+                <Button variant="outline" size="icon" >
                     <Settings size={20} className="rotate-0 scale-100 transition-all" />
                     <span className="sr-only">Settings</span>
                 </Button>

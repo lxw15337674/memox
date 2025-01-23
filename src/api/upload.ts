@@ -30,7 +30,7 @@ export async function uploadToGalleryServer(
             throw new Error('上传响应缺少文件URL');
         }
 
-        const url = `${GALLERY_URL}${response.data[0].src}`;
+        const url = `${response.data[0].src}`;
         return url;
     } catch (error) {
         console.error(`文件上传失败: ${error}`);

@@ -9,13 +9,12 @@ import SimpleMemoView from '../src/components/MemoView/SimpleMemoView';
 import { PhotoProvider } from 'react-photo-view';
 import useCountStore from '../src/store/count';
 
-export default function Home() {
+export default function Main() {
     const { memos = [], fetchInitData, fetchPagedData, databases } = useMemoStore();
     const { fetchTags, getCount } = useCountStore();
     const { validateAccessCode, config } = useConfigStore();
     const { isSimpleMode } = config.generalConfig;
     const router = useRouter();
-
     useMount(() => {
         validateAccessCode().then((hasAccessCodePermission) => {
             if (!hasAccessCodePermission) {
@@ -26,7 +25,6 @@ export default function Home() {
         fetchTags();
         getCount();
     });
-
     return (
         <PhotoProvider>
             <InfiniteScroll

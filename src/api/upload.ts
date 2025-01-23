@@ -1,4 +1,3 @@
-'use server';
 import sharp from 'sharp';
 import axios from "axios";
 

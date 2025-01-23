@@ -10,20 +10,25 @@ interface ImageProps {
     src?: string;
     loading?: boolean;
     className?: string;
+    height?: number;
+    width?: number;
     onDelete?: () => void;
 }
 
-const ImageViewer: React.FC<ImageProps> = ({ alt, src = '', onDelete, className, loading }) => {
-    if(!src){
+const ImageViewer: React.FC<ImageProps> = ({ alt, src = '', onDelete, className, loading, height, width }) => {
+    if (!src) {
         return null
     }
     return (
         <PhotoView src={src}>
-            <div className={`relative rounded-lg overflow-hidden h-full group`}>
+            <div className={`relative rounded-lg overflow-hidden  group `}>
                 <img
                     src={src}
                     alt={alt}
-                    className={`${loading ? 'opacity-50' : 'group-hover:opacity-90'} transition-all duration-300 hover:scale-110 cursor-zoom-in ${className}`}
+                    height={height}
+                    width={width}
+                    style={{ height: height ? `${height}px` : '100%', width: width ? `${width}px` : '100%' }}
+                    className={`${loading ? 'opacity-50' : 'group-hover:opacity-90'}  transition-all duration-300 hover:scale-105 object-fill cursor-zoom-in ${className} `}
                     onError={(e) => {
                         e.currentTarget.src = `https://placehold.co/600x400?text=loading`;
                     }}

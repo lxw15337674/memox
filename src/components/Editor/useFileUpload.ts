@@ -1,11 +1,9 @@
-import { useState } from 'react';
 import { useToast } from '../ui/use-toast';
 import { useImmer } from 'use-immer';
 import { uploadToGalleryServer } from '../../api/upload';
 
 const FILE_UPLOAD_CONFIG = {
     MAX_FILES: 9,
-    MAX_FILE_SIZE: 20 * 1024 * 1024, // 20MB
     ACCEPTED_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
 } as const;
 
@@ -14,10 +12,7 @@ const ERROR_MESSAGES = {
         title: '最多上传9张图片',
         description: '请删除部分图片后再上传'
     },
-    FILE_SIZE: {
-        title: '文件大小不能超过20MB',
-        description: '请重新选择文件'
-    },
+
     FILE_TYPE: {
         title: '仅支持图片文件',
         description: '请重新选择文件'
@@ -49,10 +44,6 @@ export const useFileUpload = (defaultImages: string[] = []) => {
     const validateFile = (file: File): boolean => {
         if (files.length >= FILE_UPLOAD_CONFIG.MAX_FILES) {
             toast({ ...ERROR_MESSAGES.MAX_FILES, variant: 'destructive' });
-            return false;
-        }
-        if (file.size >= FILE_UPLOAD_CONFIG.MAX_FILE_SIZE) {
-            toast({ ...ERROR_MESSAGES.FILE_SIZE, variant: 'destructive' });
             return false;
         }
         if (!FILE_UPLOAD_CONFIG.ACCEPTED_TYPES.includes(file.type as typeof FILE_UPLOAD_CONFIG.ACCEPTED_TYPES[number])) {
@@ -106,7 +97,7 @@ export const useFileUpload = (defaultImages: string[] = []) => {
         inputEl.accept = FILE_UPLOAD_CONFIG.ACCEPTED_TYPES.join(',');
         inputEl.multiple = true;
 
-        const handleChange = (e: Event) => {
+        const handleChange = async (e: Event) => {
             const target = e.target as HTMLInputElement;
             const uploadFiles = Array.from(target.files || []);
             const filesToUpload = uploadFiles.slice(0, FILE_UPLOAD_CONFIG.MAX_FILES);
@@ -118,7 +109,23 @@ export const useFileUpload = (defaultImages: string[] = []) => {
                 });
             }
 
-            filesToUpload.forEach(file => pushFile(file));
+            for (let i = 0; i < filesToUpload.length; i++) {
+                const file = filesToUpload[i];
+                toast({
+                    title: '正在上传图片',
+                    description: `${i + 1}/${filesToUpload.length}: ${file.name}`,
+                });
+                await pushFile(file);
+            }
+
+            if (filesToUpload.length > 0) {
+                toast({
+                    title: '上传完成',
+                    description: `成功上传 ${filesToUpload.length} 张图片`,
+                    variant: 'default'
+                });
+            }
+
             inputEl.removeEventListener('change', handleChange);
             inputEl.remove();
         };

@@ -132,7 +132,8 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
                   src={file.source}
                   loading={file.loading}
                   alt='file'
-                  className='h-[100px] w-[100px] object-cover rounded-md'
+                  height={100}
+                  width={100}
                   onDelete={() => removeFile(index)}
                 />
               ))}

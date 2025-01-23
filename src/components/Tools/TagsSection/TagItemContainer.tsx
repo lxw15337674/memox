@@ -114,8 +114,8 @@ export const TagItemContainer = ({ tag }: Props) => {
   return (
     <div
       className={cn(
-        'group/item flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-accent cursor-pointer',
-        isSelected() && 'bg-accent'
+        'group/item flex items-center gap-2 rounded-lg px-3 my-1 py-2 hover:bg-accent cursor-pointer',
+        isSelected() && 'bg-green-600  dark:bg-green-600 text-white dark:text-white active:bg-green-700 active:dark:bg-green-700'
       )}
       onClick={handleTagClick}
     >
@@ -124,7 +124,7 @@ export const TagItemContainer = ({ tag }: Props) => {
           {tag.name}
         </Tag>
         <div className="flex items-center relative w-8">
-          <div className="absolute right-1 text-center text-xs text-muted-foreground group-hover/item:hidden">
+          <div className="absolute right-1  text-center text-xs font-bold group-hover/item:hidden">
             {tag.memoCount}
           </div>
           <div className="absolute right-0 opacity-0 group-hover/item:opacity-100">

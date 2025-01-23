@@ -23,18 +23,6 @@ import { parseMastodonData } from '../../utils/importData';
 import useImportMemos from './useImportMemos';
 import Icon from '../Icon';
 import { clearAllDataAction } from '@/api/dbActions';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-
 export function Setting() {
     const { config, setConfig, resetGeneralConfig } = useConfigStore()
     const { toast } = useToast()
@@ -109,7 +97,7 @@ export function Setting() {
     return (
         <Dialog>
             <DialogTrigger asChild>
-                <Button variant="outline" size="icon" suppressHydrationWarning>
+                <Button variant="outline" size="icon" >
                     <Settings size={20} className="rotate-0 scale-100 transition-all" />
                     <span className="sr-only">Settings</span>
                 </Button>
@@ -149,25 +137,8 @@ export function Setting() {
                             <span>
                                 访问密码
                             </span>
-                            <span className="text-xs font-normal leading-snug text-muted-foreground">
-                                如果设置了访问密码，只有输入密码才能查看笔记
-                            </span>
                         </Label>
                         <PasswordInput disabled className="w-full  " value={config.codeConfig.accessCode} />
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label className="flex flex-col space-y-1 ">
-                            <span>
-                                编辑密码
-                            </span>
-                            <span className="text-xs font-normal leading-snug text-muted-foreground">
-                                如果设置了编辑密码，只有输入密码才能编辑笔记
-                            </span>
-                        </Label>
-                        <PasswordInput className="w-full" value={editCode} onChange={(e) => {
-                            setEditCode(e.target.value)
-                        }} />
                     </div>
                     <Button type="submit" className="w-full" variant="destructive" onClick={() => {
                         resetGeneralConfig()
@@ -231,7 +202,7 @@ export function Setting() {
                         </div>
                     </div>
 
-                    <div className="space-y-4">
+                    {/* <div className="space-y-4">
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
                                 <Button variant="destructive" className="w-full">
@@ -253,7 +224,7 @@ export function Setting() {
                                 </AlertDialogFooter>
                             </AlertDialogContent>
                         </AlertDialog>
-                    </div>
+                    </div> */}
                 </div>
             </DialogContent>
         </Dialog>

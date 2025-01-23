@@ -23,7 +23,7 @@ export function FilterDropMenu() {
                     <Icon.ChevronDown className="w-4 h-auto ml-1" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent suppressHydrationWarning>
+            <DropdownMenuContent >
                 <DropdownMenuItem onClick={() => setHasImageFilter(ImageFilter.HAS_IMAGE)}>
                     仅显示有图片
                 </DropdownMenuItem>

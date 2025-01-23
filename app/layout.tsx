@@ -2,6 +2,7 @@ import './globals.css';
 import 'react-photo-view/dist/react-photo-view.css';
 import { Metadata, Viewport } from 'next';
 import { ThemeProvider } from 'next-themes';
+import { Toaster } from "@/components/ui/toaster"
 
 const APP_NAME = "memos";
 const APP_DEFAULT_TITLE = "Memox";
@@ -59,7 +60,9 @@ export default function RootLayout({
             defaultTheme="dark"
             enableSystem
             disableTransitionOnChange
-            >{children}</ThemeProvider>
+          >{children}
+            <Toaster />
+          </ThemeProvider>
         </body>
       </html>
     </>

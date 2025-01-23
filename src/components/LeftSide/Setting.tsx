@@ -23,18 +23,6 @@ import { parseMastodonData } from '../../utils/importData';
 import useImportMemos from './useImportMemos';
 import Icon from '../Icon';
 import { clearAllDataAction } from '@/api/dbActions';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-
 export function Setting() {
     const { config, setConfig, resetGeneralConfig } = useConfigStore()
     const { toast } = useToast()

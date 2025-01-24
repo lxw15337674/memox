@@ -1,4 +1,4 @@
-'use server';
+// 'use server';
 
 import axios from "axios";
 
@@ -11,7 +11,7 @@ export async function uploadToGalleryServer(
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await axios.post(`${GALLERY_URL}/upload`, formData, {
+        const response = await axios.post(`/upload`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
 

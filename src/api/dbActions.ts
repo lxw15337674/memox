@@ -65,11 +65,28 @@ export const getMemosDataActions = async ({ filter, desc = Desc.DESC, page = 1 }
 export const createNewMemo = async (newMemo: NewMemo) => {
     try {
         const { content, images, link, created_time, last_edited_time, tags } = newMemo;
-        let tagNames: string[]
+        let tagNames: string[] = [];
         if (tags && tags.length > 0) {
             tagNames = tags;
         } else {
-            tagNames = await generateTags(content);
+            // Start tag generation asynchronously
+            generateTags(content).then(async (generatedTags) => {
+                if (generatedTags.length > 0) {
+                    await prisma.memo.update({
+                        where: { id: memo.id },
+                        data: {
+                            tags: {
+                                connectOrCreate: generatedTags.map((name: string) => ({
+                                    where: { name },
+                                    create: { name }
+                                }))
+                            }
+                        }
+                    });
+                }
+            }).catch(error => {
+                console.error("标签生成失败:", error);
+            });
         }
         const memo = await prisma.memo.create({
             data: {
@@ -78,10 +95,6 @@ export const createNewMemo = async (newMemo: NewMemo) => {
                 createdAt: created_time ? new Date(created_time) : new Date(),
                 updatedAt: last_edited_time ? new Date(last_edited_time) : new Date(),
                 tags: {
-                    connectOrCreate: tagNames.map((name: string) => ({
-                        where: { name },
-                        create: { name }
-                    }))
                 },
                 link: link ? {
                     create: link
@@ -132,26 +145,18 @@ export const getMemoByIdAction = async (id: string) => {
 export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
-        const tagNames = await generateTags(content);
-
+        
         // Update memo with new data in a transaction
         const memo = await prisma.$transaction(async (tx) => {
             // Delete existing link
             await tx.link.deleteMany({ where: { memoId: id } });
 
-            // Update memo
-            return tx.memo.update({
+            // Update memo first
+            const updatedMemo = await tx.memo.update({
                 where: { id },
                 data: {
                     content,
                     images: images || [],
-                    tags: {
-                        set: [], // First disconnect all existing tags
-                        connectOrCreate: tagNames.map((name: string) => ({
-                            where: { name },
-                            create: { name }
-                        }))
-                    },
                     link: link ? {
                         create: link
                     } : undefined
@@ -161,6 +166,28 @@ export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
                     tags: true
                 }
             });
+
+            // Generate tags asynchronously
+            generateTags(content).then(async (tagNames) => {
+                if (tagNames.length > 0) {
+                    await prisma.memo.update({
+                        where: { id },
+                        data: {
+                            tags: {
+                                set: [], // First disconnect all existing tags
+                                connectOrCreate: tagNames.map((name: string) => ({
+                                    where: { name },
+                                    create: { name }
+                                }))
+                            }
+                        }
+                    });
+                }
+            }).catch(error => {
+                console.error("标签生成失败:", error);
+            });
+
+            return updatedMemo;
         });
 
         return memo.id;

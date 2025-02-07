@@ -27,10 +27,10 @@ export const generateTags = async (content: string): Promise<string[]> => {
     try {
         const tags = await getTagsAction();
         const prompt = tagPrompt(content, tags.map(tag => tag.name));
-        const response = await axios.get<ChatCompletion>('https://bhwa-api.zeabur.app/api/ai/chat', {
-            params: { prompt }
+        const completion = await axios.post<ChatCompletion>('https://bhwa-api.zeabur.app/api/ai/chat', {
+            prompt
         });
-        const newTags = JSON.parse(response.data.choices[0].message.content ?? '');
+        const newTags = JSON.parse(completion.data.choices[0].message.content ?? '');
         return newTags;
     } catch (error) {
         console.error('生成标签时出错:', error);

@@ -1,6 +1,7 @@
 'use server';
-import OpenAI from 'openai';
+import axios from 'axios';
 import { getTagsAction } from './dbActions';
+import { ChatCompletion } from 'openai/resources';
 
 const tagPrompt = (content: string, tags: string[]) => `
 您是一位专业的内容分析助手，擅长提取文本核心主题并生成精准的标签。
@@ -22,21 +23,14 @@ ${content}
 请严格按照以下返回： ["标签1", "标签2"]
 `;
 
-// 初始化 OpenAI 客户端
-const openai = new OpenAI({
-    baseURL: process.env.AI_BASE_URL,
-    apiKey: process.env.AI_API_KEY,
-});
-
 export const generateTags = async (content: string): Promise<string[]> => {
     try {
         const tags = await getTagsAction();
         const prompt = tagPrompt(content, tags.map(tag => tag.name));
-        const response = await openai.chat.completions.create({
-            model: "deepseek-chat",
-            messages: [{ role: "user", content: prompt }],
+        const response = await axios.get<ChatCompletion>('https://bhwa-api.zeabur.app/api/ai/chat', {
+            params: { prompt }
         });
-        const newTags = JSON.parse(response.choices[0].message.content ?? '');
+        const newTags = JSON.parse(response.data.choices[0].message.content ?? '');
         return newTags;
     } catch (error) {
         console.error('生成标签时出错:', error);

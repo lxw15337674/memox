@@ -5,7 +5,9 @@ import * as cheerio from 'cheerio';
 export const fetchTitle = async (url: string): Promise<string> => {
     try {
         const apiUrl = `https://bhwa-api.zeabur.app/api/ai/page-content?url=${encodeURIComponent(url)}`;
-        const { data } = await axios.get(apiUrl);
+        const { data } = await axios.get(apiUrl, {
+            timeout: 5000
+        });
         if (data?.title) {
             return data.title
         }

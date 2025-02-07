@@ -2,7 +2,6 @@
 
 import axios from "axios";
 
-const GALLERY_URL = 'https://gallery233.pages.dev';
 
 export async function uploadToGalleryServer(
     file: File,

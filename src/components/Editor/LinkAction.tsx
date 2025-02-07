@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import Icon from '../Icon'
 import { ExternalLinkIcon } from 'lucide-react'
 import { fetchTitle } from '../../api/requestActions'
+import { toast } from '../ui/use-toast'
 export interface LinkType {
     url: string;
     text: string | null;
@@ -35,6 +36,11 @@ export default function LinkAction({ link, setLink }: Props) {
         setLoading(true)
         setIsOpen(false)
         const title = await fetchTitle(url)
+        toast({
+            title: `链接已添加`,
+            description: `标题为: ${title}`,
+            variant: 'default'
+        });
         setLink({ url, text: text || title })
         setLoading(false)
     }
@@ -52,17 +58,12 @@ export default function LinkAction({ link, setLink }: Props) {
         <Popover open={isOpen} onOpenChange={setIsOpen}>
             <PopoverTrigger asChild>
                 <Button variant="ghost" size="icon"
-                    className={`${link?.url ? 'text-blue-800 dark:text-blue-400' : ''} px-2 w-auto md:max-w-[10vw] max-w-[30vw]`}>
+                title={text}
+                    className={`${link?.url ? 'text-blue-800 dark:text-blue-400' : ''}`}>
                     {
                         loading ? (
                             <Icon.Loader2 className="animate-spin" size={20} />
-                        ) : link?.url ? (
-                            <div className="inline-block truncate " title={text}>
-                                {text}
-                            </div>
-                        ) : (
-                            <Icon.Link size={20} />
-                        )
+                        ) : <Icon.Link size={20} />
                     }
                 </Button>
             </PopoverTrigger>

@@ -363,3 +363,28 @@ export const updateTagAction = async (oldName: string, newName: string) => {
 
     return updatedTag;
 };
+
+export const regenerateMemeTags = async (memoId: string) => {
+    try {
+        const memo = await getMemoByIdAction(memoId);
+        const tagNames = await generateTags(memo?.content || '');
+        
+        await prisma.memo.update({
+            where: { id: memoId },
+            data: {
+                tags: {
+                    set: [], // First disconnect all existing tags
+                    connectOrCreate: tagNames.map((name: string) => ({
+                        where: { name },
+                        create: { name }
+                    }))
+                }
+            }
+        });
+        console.log('新生成的标签:', tagNames);
+        return memo;
+        } catch (error) {
+        console.error(error);
+        return null;
+    }
+};

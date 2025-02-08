@@ -1,7 +1,6 @@
 'use server';
 import axios from 'axios';
 import { getTagsAction } from './dbActions';
-import { ChatCompletion } from 'openai/resources';
 
 const tagPrompt = (content: string, tags: string[]) => `
 您是一位专业的内容分析助手，擅长提取文本核心主题并生成精准的标签。

@@ -9,10 +9,9 @@ import ImageViewer from '../ImageViewer';
 import { PhotoProvider } from 'react-photo-view';
 import LinkAction, { LinkType } from './LinkAction';
 import { AutosizeTextarea } from '../ui/AutosizeTextarea';
-import { LucideIcon, SparklesIcon, Wand2Icon } from 'lucide-react';
+import { LucideIcon } from 'lucide-react';
 import { Link } from '@prisma/client';
 import { NewMemo } from '../../api/type';
-import { useAIPolish } from './useAIPolish';
 import { AIPolishPreview } from './AIPolishPreview';
 
 interface Props {
@@ -144,6 +143,17 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
 
           <div className='flex items-center border-t py-2 gap-1'>
             <div className="flex items-center gap-1">
+              <ToolbarButton
+                icon={Icon.ClipboardPaste}
+                title='粘贴剪切板内容'
+                onClick={() => {
+                  if (!editorRef) return;
+                  editorRef.focus();
+                  navigator.clipboard.readText().then(text => {
+                    replaceText(text, editorRef?.selectionStart, editorRef?.selectionStart, 0);
+                  });
+                }}
+              />
               <AIPolishPreview
                 originalText={editorRef?.value || ''}
                 onTextChange={(text) => {
@@ -160,17 +170,6 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
                     return
                   }
                   replaceText('#', editorRef?.selectionStart, editorRef?.selectionStart, 0)
-                }}
-              />
-              <ToolbarButton
-                icon={Icon.ClipboardPaste}
-                title='粘贴剪切板内容'
-                onClick={() => {
-                  if (!editorRef) return;
-                  editorRef.focus();
-                  navigator.clipboard.readText().then(text => {
-                    replaceText(text, editorRef?.selectionStart, editorRef?.selectionStart, 0);
-                  });
                 }}
               />
               <ToolbarButton

@@ -63,7 +63,7 @@ export default function LinkAction({ link, setLink }: Props) {
                     {
                         loading ? (
                             <Icon.Loader2 className="animate-spin" size={20} />
-                        ) : <Icon.Link size={20} />
+                        ) : <Icon.Link2 size={20} />
                     }
                 </Button>
             </PopoverTrigger>

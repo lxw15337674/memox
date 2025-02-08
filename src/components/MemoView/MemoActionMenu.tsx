@@ -21,7 +21,7 @@ interface Props {
 
 const MemoActionMenu = ({ memoId, onEdit, parsedContent }: Props) => {
   const { toast } = useToast();
-  const { removeMemo, updateMemo } = useMemoStore();
+  const { removeMemo,  updateMemo } = useMemoStore();
   const { setOpen, setText } = useShareCardStore();
 
   const handleDelete = async () => {
@@ -53,7 +53,13 @@ const MemoActionMenu = ({ memoId, onEdit, parsedContent }: Props) => {
         title: "标签重新生成中",
         duration: 1000
       });
-      await regenerateMemeTags(memoId);
+      const memo = await regenerateMemeTags(memoId);
+      updateMemo(memoId);
+      toast({
+        title: "标签生成成功",
+        description: `生成的标签为: ${memo?.tags?.map(item=>item.name).join(", ")}`,
+        duration: 1000
+      });
     } catch (error) {
       toast({
         variant: "destructive",
@@ -82,7 +88,7 @@ const MemoActionMenu = ({ memoId, onEdit, parsedContent }: Props) => {
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleRegenTags}>
           <Icon.Tags className="mr-2" size={16} />
-          AI 重新生成标签
+          重新生成标签
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleDelete} className="text-red-600">

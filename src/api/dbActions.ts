@@ -68,26 +68,7 @@ export const createNewMemo = async (newMemo: NewMemo) => {
         let tagNames: string[] = [];
         if (tags && tags.length > 0) {
             tagNames = tags;
-        } else {
-            // Start tag generation asynchronously
-            generateTags(content).then(async (generatedTags) => {
-                if (generatedTags.length > 0) {
-                    await prisma.memo.update({
-                        where: { id: memo.id },
-                        data: {
-                            tags: {
-                                connectOrCreate: generatedTags.map((name: string) => ({
-                                    where: { name },
-                                    create: { name }
-                                }))
-                            }
-                        }
-                    });
-                }
-            }).catch(error => {
-                console.error("标签生成失败:", error);
-            });
-        }
+        } 
         const memo = await prisma.memo.create({
             data: {
                 content,
@@ -95,6 +76,10 @@ export const createNewMemo = async (newMemo: NewMemo) => {
                 createdAt: created_time ? new Date(created_time) : new Date(),
                 updatedAt: last_edited_time ? new Date(last_edited_time) : new Date(),
                 tags: {
+                    connectOrCreate: tagNames.map((name: string) => ({
+                        where: { name },
+                        create: { name }
+                    }))
                 },
                 link: link ? {
                     create: link
@@ -102,7 +87,6 @@ export const createNewMemo = async (newMemo: NewMemo) => {
             },
             include: {
                 link: true,
-                tags: true
             }
         });
         return memo;
@@ -395,7 +379,6 @@ export const regenerateMemeTags = async (memoId: string) => {
     try {
         const memo = await getMemoByIdAction(memoId);
         const tagNames = await generateTags(memo?.content || '');
-        
         await prisma.memo.update({
             where: { id: memoId },
             data: {

@@ -9,9 +9,11 @@ import ImageViewer from '../ImageViewer';
 import { PhotoProvider } from 'react-photo-view';
 import LinkAction, { LinkType } from './LinkAction';
 import { AutosizeTextarea } from '../ui/AutosizeTextarea';
-import { LucideIcon } from 'lucide-react';
+import { LucideIcon, SparklesIcon, Wand2Icon } from 'lucide-react';
 import { Link } from '@prisma/client';
 import { NewMemo } from '../../api/type';
+import { useAIPolish } from './useAIPolish';
+import { AIPolishPreview } from './AIPolishPreview';
 
 interface Props {
   onSubmit: (memo: NewMemo) => Promise<any>;
@@ -40,7 +42,7 @@ const ToolbarButton = ({ icon: Icon, title, onClick, disabled = false }: Toolbar
     onClick={onClick}
     disabled={disabled}
   >
-    <Icon size={20} />
+    <Icon size={18} />
   </Button>
 );
 
@@ -66,6 +68,7 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
     }
   }, { wait: 200 });
   const [isFocused, setIsFocused] = useState(false);
+  const isLoading = loading || isUploading;
   const onSave = async () => {
     const editor = editorRef;
     if (!editor) {
@@ -107,7 +110,6 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
       }
     }
   })
-  const isLoading = loading || isUploading
   return (
     <div className={`relative w-auto overflow-x-hidden h-full border bg-background rounded-md transition-colors duration-200 ${isFocused ? 'border-blue-500' : 'border-input'}`}>
       <div className="flex flex-col h-full">
@@ -142,6 +144,14 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
 
           <div className='flex items-center border-t py-2 gap-1'>
             <div className="flex items-center gap-1">
+              <AIPolishPreview
+                originalText={editorRef?.value || ''}
+                onTextChange={(text) => {
+                  if (!editorRef) return;
+                  editorRef.value = text;
+                  editorRef.dispatchEvent(new Event('input'));
+                }}
+              />
               <ToolbarButton
                 icon={Icon.Hash}
                 title='插入标签'

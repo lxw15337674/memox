@@ -23,6 +23,23 @@ ${content}
 请严格按照以下返回： ["标签1", "标签2"]
 `;
 
+const polishPrompt = (content: string) => `
+您是一位专业的文字润色助手，擅长改进文本的表达和结构，使其更加优美流畅。
+
+输入内容：
+${content}
+
+润色规则：
+1. 保持原文的核心意思和关键信息不变
+2. 改善语言表达，使其更加流畅自然
+3. 纠正语法错误和不恰当的用词
+4. 保持适度的书面语气，不过分文艺
+5. 保留原文中的特殊格式（如 #标签）
+6. 控制输出长度，不超过原文的1.5倍
+7. 如果原文已经足够好，可以保持不变
+
+请直接返回润色后的文本，无需其他解释。`;
+
 export const generateTags = async (content: string): Promise<string[]> => {
     try {
         const tags = await getTagsAction();
@@ -35,5 +52,17 @@ export const generateTags = async (content: string): Promise<string[]> => {
     } catch (error) {
         console.error('生成标签时出错:', error);
         return [];
+    }
+};
+
+export const polishContent = async (content: string): Promise<string> => {
+    try {
+        const response = await axios.post('https://bhwa-us.zeabur.app/api/ai/google-chat', {
+            prompt: polishPrompt(content)
+        });
+        return response.data
+    } catch (error) {
+        console.error('润色文本时出错:', error);
+        return content;
     }
 };

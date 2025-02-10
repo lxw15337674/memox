@@ -129,54 +129,51 @@ export const getMemoByIdAction = async (id: string) => {
 export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
-        
-        // Update memo with new data in a transaction
-        const memo = await prisma.$transaction(async (tx) => {
-            // Delete existing link
-            await tx.link.deleteMany({ where: { memoId: id } });
-
-            // Update memo first
-            const updatedMemo = await tx.memo.update({
+        // 更新memo
+        const updatedMemo = await prisma.memo.update({
+            where: { id },
+            data: {
+                content,
+                images: images || [],
+                link: link ? {
+                    upsert: {
+                        create: {
+                            url: link.url,
+                            text: link.text
+                        },
+                        update: {
+                            url: link.url,
+                            text: link.text
+                        }
+                    }
+                } : {
+                    delete: true
+                }
+            },
+            include: {
+                link: true,
+                tags: true
+            }
+        });
+        // 处理标签生成和更新
+        const tagNames = await generateTags(content);
+        if (tagNames.length > 0) {
+            await prisma.memo.update({
                 where: { id },
                 data: {
-                    content,
-                    images: images || [],
-                    link: link ? {
-                        create: link
-                    } : undefined
-                },
-                include: {
-                    link: true,
-                    tags: true
+                    tags: {
+                        set: [],
+                        connectOrCreate: tagNames.map((name: string) => ({
+                            where: { name },
+                            create: { name }
+                        }))
+                    }
                 }
             });
-
-            // Generate tags asynchronously
-            generateTags(content).then(async (tagNames) => {
-                if (tagNames.length > 0) {
-                    await prisma.memo.update({
-                        where: { id },
-                        data: {
-                            tags: {
-                                set: [], // First disconnect all existing tags
-                                connectOrCreate: tagNames.map((name: string) => ({
-                                    where: { name },
-                                    create: { name }
-                                }))
-                            }
-                        }
-                    });
-                }
-            }).catch(error => {
-                console.error("标签生成失败:", error);
-            });
-
-            return updatedMemo;
-        });
-
-        return memo.id;
+        }
+        return updatedMemo.id;
     } catch (error) {
-        console.error(error);
+        console.error("更新失败:", error);
         return null;
     }
 };

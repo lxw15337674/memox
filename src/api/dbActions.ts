@@ -68,7 +68,7 @@ export const createNewMemo = async (newMemo: NewMemo) => {
         let tagNames: string[] = [];
         if (tags && tags.length > 0) {
             tagNames = tags;
-        } 
+        }
         const memo = await prisma.memo.create({
             data: {
                 content,
@@ -129,25 +129,28 @@ export const getMemoByIdAction = async (id: string) => {
 export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
+
+        // 获取现有的memo数据
+        const existingMemo = await prisma.memo.findUnique({
+            where: { id },
+            include: { link: true }
+        });
+
         // 更新memo
         const updatedMemo = await prisma.memo.update({
             where: { id },
             data: {
                 content,
                 images: images || [],
-                link: link ? {
-                    upsert: {
-                        create: {
-                            url: link.url,
-                            text: link.text
-                        },
-                        update: {
-                            url: link.url,
-                            text: link.text
-                        }
-                    }
-                } : {
-                    delete: true
+                link: {
+                    // 如果当前没有link且新数据也没有link，不做任何操作
+                    ...((!existingMemo?.link && !link) ? {} : 
+                    // 如果新数据没有link但原来有，删除原有link
+                    (!link ? { delete: true } : 
+                    // 如果原来没有link但现在有，创建新link
+                    (!existingMemo?.link ? { create: { url: link.url, text: link.text } } :
+                    // 如果都有link，更新现有link
+                    { update: { url: link.url, text: link.text } })))
                 }
             },
             include: {
@@ -155,6 +158,7 @@ export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
                 tags: true
             }
         });
+
         // 处理标签生成和更新
         const tagNames = await generateTags(content);
         if (tagNames.length > 0) {
@@ -163,7 +167,7 @@ export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
                 data: {
                     tags: {
                         set: [],
-                        connectOrCreate: tagNames.map((name: string) => ({
+                        connectOrCreate: (tagNames ?? [])?.map((name: string) => ({
                             where: { name },
                             create: { name }
                         }))
@@ -390,7 +394,7 @@ export const regenerateMemeTags = async (memoId: string) => {
         });
         console.log('新生成的标签:', tagNames);
         return memo;
-        } catch (error) {
+    } catch (error) {
         console.error(error);
         return null;
     }

@@ -46,6 +46,7 @@ export default function LinkAction({ link, setLink }: Props) {
     }
 
     const isValidUrl = (string: string) => {
+        if(!string) return true
         try {
             new URL(string)
             return true

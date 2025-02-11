@@ -184,7 +184,7 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
               <LinkAction link={link} setLink={setLink} />
             </div>
 
-            <div className="flex items-center gap-1 ml-auto">
+            <div className="flex items-center gap-2 ml-auto">
               {onCancel && (
                 <Button
                   disabled={loading}
@@ -199,12 +199,12 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
                 disabled={isLoading}
                 variant="outline"
                 onClick={onSave}
-                className="px-3"
+                className="px-4 gap-2"
               >
                 {isLoading ? (
-                  <Icon.Loader2 size={18} className="animate-spin mr-1" />
+                  <Icon.Loader2 size={18} className="animate-spin " />
                 ) : (
-                  <Icon.Send size={18} className="mr-1" />
+                  <Icon.Send size={18}/>
                 )}
                 发送
               </Button>

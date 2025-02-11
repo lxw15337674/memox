@@ -141,8 +141,8 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
             </div>
           </PhotoProvider>
 
-          <div className='flex items-center border-t py-2 gap-1'>
-            <div className="flex items-center gap-1">
+          <div className='flex items-center border-t py-1.5 gap-0.5'>
+            <div className="flex items-center ">
               <ToolbarButton
                 icon={Icon.ClipboardPaste}
                 title='粘贴剪切板内容'
@@ -184,13 +184,13 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
               <LinkAction link={link} setLink={setLink} />
             </div>
 
-            <div className="flex items-center gap-2 ml-auto">
+            <div className="flex items-center gap-1 ml-auto">
               {onCancel && (
                 <Button
                   disabled={loading}
                   variant="ghost"
                   onClick={onCancel}
-                  className="px-4"
+                  className="px-3"
                 >
                   取消
                 </Button>
@@ -199,12 +199,12 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink }
                 disabled={isLoading}
                 variant="outline"
                 onClick={onSave}
-                className="px-4"
+                className="px-3"
               >
                 {isLoading ? (
-                  <Icon.Loader2 size={20} className="animate-spin mr-2" />
+                  <Icon.Loader2 size={18} className="animate-spin mr-1" />
                 ) : (
-                  <Icon.Send size={20} className="mr-2" />
+                  <Icon.Send size={18} className="mr-1" />
                 )}
                 发送
               </Button>

@@ -129,7 +129,7 @@ const TagSuggestions = ({ editorRef: editor, replaceText }: Props) => {
   if (!isVisible || typeof document === 'undefined') return null;
   return createPortal(
     <Card
-      className="z-50 p-1 mt-1 -ml-2 fixed max-w-[12rem] max-h-[300px] gap-px rounded font-mono flex flex-col justify-start items-start overflow-auto shadow"
+      className="z-50 p-1 mt-1 -ml-2 fixed max-w-[12rem] max-h-[80vh] gap-px rounded font-mono flex flex-col justify-start items-start overflow-auto shadow"
       style={{ left: position.left, top: position.top + position.height }}
     >
       {suggestions.slice(0, 20).map((tag, i) => (

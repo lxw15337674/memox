@@ -30,8 +30,6 @@ ${content}
 4. 保持适度的书面语气，不过分文艺
 5. 保留原文中的特殊格式（如#标签）
 6. 控制输出长度，不超过原文的2倍
-7. 如果原文已经足够好，可以保持不变
-
 请直接返回润色后的文本，无需其他解释。`;
 
 export const generateTags = async (content: string): Promise<string[]> => {

@@ -13,7 +13,7 @@ export const getRecordsActions = async (config: {
     filter?: Filter;
     desc?: Desc;
 }) => {
-    const { page_size = 20, page = 1, filter, desc = Desc.DESC } = config;
+    const { page_size = 30, page = 1, filter, desc = Desc.DESC } = config;
     try {
         const where = filter ? buildWhereClause(filter) : {};
 

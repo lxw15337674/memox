@@ -8,7 +8,6 @@ export const fetchTitle = async (url: string): Promise<string> => {
         const { data } = await axios.get(apiUrl, {
             timeout: 20000
         });
-        debugger
         if (data?.title) {
             return data.title
         }

@@ -27,11 +27,6 @@ export default function LinkAction({ link, setLink }: Props) {
     const [text, setText] = useState(link?.text ?? '')
     const [loading, setLoading] = useState(false)
 
-    useEffect(() => {
-        setUrl(link?.url ?? '')
-        setText(link?.text ?? '')
-    }, [link])
-
     const handleSubmit = async () => {
         setLoading(true)
         setIsOpen(false)
@@ -41,12 +36,13 @@ export default function LinkAction({ link, setLink }: Props) {
             description: `标题为: ${title}`,
             variant: 'default'
         });
-        setLink({ url, text: text || title })
+        setText(title)
+        setLink({ url, text: title })
         setLoading(false)
     }
 
     const isValidUrl = (string: string) => {
-        if(!string) return true
+        if (!string) return true
         try {
             new URL(string)
             return true
@@ -59,7 +55,7 @@ export default function LinkAction({ link, setLink }: Props) {
         <Popover open={isOpen} onOpenChange={setIsOpen}>
             <PopoverTrigger asChild>
                 <Button variant="ghost" size="icon"
-                title={text}
+                    title={text}
                     className={`${link?.url ? 'text-blue-800 dark:text-blue-400' : ''}`}>
                     {
                         loading ? (

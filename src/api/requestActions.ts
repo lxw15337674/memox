@@ -4,10 +4,11 @@ import * as cheerio from 'cheerio';
 
 export const fetchTitle = async (url: string): Promise<string> => {
     try {
-        const apiUrl = `https://bhwa-api.zeabur.app/api/ai/page-content?url=${encodeURIComponent(url)}`;
+        const apiUrl = `https://bhwa-us.zeabur.app/api/page-scraper/content?url=${encodeURIComponent(url)}`;
         const { data } = await axios.get(apiUrl, {
-            timeout: 5000
+            timeout: 20000
         });
+        debugger
         if (data?.title) {
             return data.title
         }
@@ -20,6 +21,7 @@ export const fetchTitle = async (url: string): Promise<string> => {
         const $ = cheerio.load(html);
         return $('title').text() || url;
     } catch (error) {
+        debugger
         console.error('Error fetching title:', error);
         return url;
     }

@@ -85,9 +85,6 @@ export const createNewMemo = async (newMemo: NewMemo) => {
                     create: link
                 } : undefined
             },
-            include: {
-                link: true,
-            }
         });
         return memo;
     } catch (error) {

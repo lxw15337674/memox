@@ -3,14 +3,13 @@ import axios from 'axios';
 import { getTagsAction } from './dbActions';
 
 const tagPrompt = (content: string, tags: string[]) => `
-您是一位专业的内容分析助手，擅长提取文本核心主题并生成精准的标签。
+您是专业的内容标签生成器，遵循严格规则提取核心主题并生成精准标签：
 
 输入内容：
 ${content}
 现有标签库：${tags.join('、')}
 标签生成规则：
-1. 首先检查内容中是否包含 #标签 格式文本，如有则直接提取(最高优先级，无视其他规则)
-   例如：文本中包含"今天天气真好 #值得记录的事情"，应提取出"值得记录的事情"标签，
+1. 优先提取内容中所有 #符号开头的标签（如"#科技趋势"），无视其他规则。例如：文本中包含"今天天气真好 #值得记录的事情"，应提取出"值得记录的事情"作为标签，
 2. 提炼内容核心主题和关键概念
 3. 优先从现有标签库中选择匹配的标签
 4. 仅当现有标签不足以表达内容核心主题时，创建简洁明确的新标签
@@ -40,11 +39,13 @@ ${content}
   [强调彻底的无所畏惧]正因我一无所有，才真正无所畏惧。
 `;
 
+const AI_API = 'https://bhwa-us.zeabur.app/api/ai/google-chat'
+
 export const generateTags = async (content: string): Promise<string[]> => {
     try {
         const tags = await getTagsAction();
         const prompt = tagPrompt(content, tags.map(tag => tag.name));
-        const response = await axios.post('https://bhwa-us.zeabur.app/api/ai/google-chat', {
+        const response = await axios.post(AI_API, {
             prompt
         });
         const newTags = response.data as string[];
@@ -57,7 +58,7 @@ export const generateTags = async (content: string): Promise<string[]> => {
 
 export const polishContent = async (content: string): Promise<string> => {
     try {
-        const response = await axios.post('https://bhwa-us.zeabur.app/api/ai/google-chat', {
+        const response = await axios.post(AI_API, {
             prompt: polishPrompt(content)
         });
         return response.data

@@ -1,15 +1,16 @@
 'use server';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { API_URL } from './config';
 
 export const fetchTitle = async (url: string): Promise<string> => {
     try {
-        const apiUrl = `https://bhwa-us.zeabur.app/api/page-scraper/content?url=${encodeURIComponent(url)}`;
+        const apiUrl = `${API_URL}/api/page-scraper/content?url=${encodeURIComponent(url)}`;
         const { data } = await axios.get(apiUrl, {
             timeout: 20000
         });
         if (data?.title) {
-            return data.title
+            return data.title;
         }
         const response = await axios.get(url, {
             headers: {
@@ -20,7 +21,6 @@ export const fetchTitle = async (url: string): Promise<string> => {
         const $ = cheerio.load(html);
         return $('title').text() || url;
     } catch (error) {
-        debugger
         console.error('Error fetching title:', error);
         return url;
     }

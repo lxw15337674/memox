@@ -38,8 +38,6 @@ const polishPrompt = () => `
   [强调彻底的无所畏惧]正因我一无所有，才真正无所畏惧。
 `;
 
-const AI_API = 'https://bhwa-us.zeabur.app/api/ai/google-chat'
-
 export const generateTags = async (content: string): Promise<string[]> => {
     try {
         const tags = await getTagsAction();

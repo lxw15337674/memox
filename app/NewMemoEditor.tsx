@@ -2,7 +2,7 @@
 import React from 'react';
 import Editor from '@/components/Editor';
 import { useRequest } from 'ahooks';
-import { createNewMemo } from '../src/api/dbActions';
+import { createNewMemo, regenerateMemeTags } from '../src/api/dbActions';
 import useMemoStore from '../src/store/memo';
 import { useToast } from '../src/components/ui/use-toast';
 import { startConfettiAnimation } from '../src/lib/utils';
@@ -12,13 +12,14 @@ const NewMemoEditor: React.FC = () => {
     const { toast } = useToast();
     const { runAsync: createRecord } = useRequest(createNewMemo, {
         manual: true,
-        onSuccess: async () => {
+        onSuccess: async ({ id }) => {
             toast({
                 title: '创建成功',
                 description: '已成功创建新笔记',
             });
             startConfettiAnimation();
             fetchFirstData()
+            regenerateMemeTags(id);
         }
     })
     return (

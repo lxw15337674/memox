@@ -36,6 +36,10 @@ const nextConfig = withSerwist({
                 source: '/upload',
                 destination: 'https://gallery233.pages.dev/upload',
             },
+            {
+                source: '/ai',
+                destination: 'https://bhwa-hk-api.zeabur.app',
+            }
         ];
     },
 })

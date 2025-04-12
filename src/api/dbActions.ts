@@ -1,5 +1,3 @@
-'use server';
-
 import { Filter, MemosCount, NewMemo, Note } from './type';
 import { prisma } from '.';
 import { generateTags } from './aiActions';

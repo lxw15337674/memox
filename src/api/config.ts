@@ -1,1 +1,1 @@
-export const API_URL = "https://bhwa-hk-api.zeabur.app";
+export const API_URL = "https://bhwa233-api.vercel.app/";

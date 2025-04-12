@@ -1,3 +1,5 @@
+'use server';
+
 import axios from 'axios';
 import { getTagsAction } from './dbActions';
 import { API_URL } from './config';

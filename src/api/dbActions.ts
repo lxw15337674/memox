@@ -65,27 +65,34 @@ export const getMemosDataActions = async ({ filter, desc = Desc.DESC, page = 1 }
 export const createNewMemo = async (newMemo: NewMemo) => {
     try {
         const { content, images, link, created_time, last_edited_time, tags } = newMemo;
-        let tagNames: string[] = [];
-        if (tags && tags.length > 0) {
-            tagNames = tags;
-        }
-        const memo = await prisma.memo.create({
-            data: {
-                content,
-                images: images || [],
-                createdAt: created_time ? new Date(created_time) : new Date(),
-                updatedAt: last_edited_time ? new Date(last_edited_time) : new Date(),
-                tags: {
-                    connectOrCreate: tagNames.map((name: string) => ({
-                        where: { name },
-                        create: { name }
-                    }))
+        const tagNames: string[] = tags && tags.length > 0 ? tags : [];
+        
+        // 使用事务包装所有数据库操作，减少数据库往返
+        const memo = await prisma.$transaction(async (tx) => {
+            // 在单个事务中创建备忘录和关联实体
+            return await tx.memo.create({
+                data: {
+                    content,
+                    images: images || [],
+                    createdAt: created_time ? new Date(created_time) : new Date(),
+                    updatedAt: last_edited_time ? new Date(last_edited_time) : new Date(),
+                    tags: {
+                        connectOrCreate: tagNames.map((name: string) => ({
+                            where: { name },
+                            create: { name }
+                        }))
+                    },
+                    link: link ? {
+                        create: link
+                    } : undefined
                 },
-                link: link ? {
-                    create: link
-                } : undefined
-            },
+                include: {
+                    tags: true,
+                    link: true
+                }
+            });
         });
+        
         return memo;
     } catch (error) {
         console.error("添加失败:", error);

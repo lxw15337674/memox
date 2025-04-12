@@ -13,9 +13,11 @@ type Position = { left: number; top: number; height: number };
 interface Props {
   editorRef: HTMLTextAreaElement | null;
   replaceText: ReplaceTextFunction;
+  content?: string;
+  onContentChange?: (newContent: string) => void;
 }
 
-const TagSuggestions = ({ editorRef: editor, replaceText }: Props) => {
+const TagSuggestions = ({ editorRef: editor, replaceText, content, onContentChange }: Props) => {
   const [position, setPosition] = useState<Position | null>(null);
   const { tags } = useCountStore();
   const [selected, select] = useState(0);
@@ -26,6 +28,7 @@ const TagSuggestions = ({ editorRef: editor, replaceText }: Props) => {
 
   const getCurrentWord = (): [word: string, startIndex: number] => {
     if (!editor) return ['', 0];
+    const editorValue = content !== undefined ? content : editor.value;
     const after = editor.selectionEnd;
     const before = editor.selectionStart;
     if (before !== after) return ['', 0];
@@ -33,11 +36,11 @@ const TagSuggestions = ({ editorRef: editor, replaceText }: Props) => {
     let start = after;
     // Find the start of the current word
     for (let i = after - 1; i >= 0; i--) {
-      if (editor.value[i] === '#') {
+      if (editorValue[i] === '#') {
         start = i;
         break;
       }
-      if (editor.value[i] === ' ') {
+      if (editorValue[i] === ' ') {
         // If we find a space before finding #, then there's no tag
         return ['', 0];
       }
@@ -47,7 +50,7 @@ const TagSuggestions = ({ editorRef: editor, replaceText }: Props) => {
       }
     }
 
-    const word = editor.value.slice(start, after);
+    const word = editorValue.slice(start, after);
     return [word, start];
   };
 
@@ -70,7 +73,23 @@ const TagSuggestions = ({ editorRef: editor, replaceText }: Props) => {
 
   const autocomplete = (tag: string) => {
     const [word, start] = getCurrentWord();
-    replaceText(`#${tag}`, start, start + word.length, 1);
+    if (onContentChange && content !== undefined) {
+      // For controlled component
+      const editorValue = content;
+      const newContent = editorValue.slice(0, start) + `#${tag} ` + editorValue.slice(start + word.length);
+      onContentChange(newContent);
+      
+      setTimeout(() => {
+        if (editor) {
+          editor.selectionStart = start + tag.length + 2;
+          editor.selectionEnd = start + tag.length + 2;
+          editor.focus();
+        }
+      }, 100);
+    } else {
+      // For uncontrolled component
+      replaceText(`#${tag}`, start, start + word.length, 1);
+    }
     hide();
   };
 

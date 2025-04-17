@@ -266,17 +266,18 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink, 
               <LinkAction link={link} setLink={setLink} />
             </div>
 
-            <div className="flex items-center gap-2 ml-auto">
-              {onCancel && (
+            <div className="flex items-center gap-1 ml-auto">
+              {onCancel ?(
                 <Button
                   disabled={loading}
                   variant="ghost"
+                  size="icon"
                   onClick={onCancel}
-                  className="px-3"
+                  title="取消"
                 >
-                  取消
+                  <Icon.X size={18} />
                 </Button>
-              )}
+              ):
               <Button
                 variant="ghost"
                 size="icon"
@@ -295,7 +296,7 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink, 
                 disabled={isLoading || (!content && !files?.length && !link)}
               >
                 <Icon.Trash2 size={18} />
-              </Button>
+              </Button>}
               <Button
                 disabled={isLoading}
                 variant="outline"
@@ -307,7 +308,6 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink, 
                 ) : (
                   <Icon.Send size={18}/>
                 )}
-                发送
               </Button>
             </div>
           </div>

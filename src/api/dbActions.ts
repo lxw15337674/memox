@@ -3,6 +3,8 @@
 import { Filter, MemosCount, NewMemo, Note } from './type';
 import { prisma } from '.';
 import { generateTags } from './aiActions';
+import { waitUntil } from '@vercel/functions';
+
 import { Desc } from '../store/filter';
 import { format } from 'date-fns';
 
@@ -63,7 +65,6 @@ export const getMemosDataActions = async ({ filter, desc = Desc.DESC, page = 1 }
 };
 
 export const createNewMemo = async (newMemo: NewMemo) => {
-    console.time('createNewMemo'); // 开始计时
     try {
         const { content, images, link, created_time, last_edited_time, tags } = newMemo;
         const tagNames: string[] = tags && tags.length > 0 ? tags : [];
@@ -94,10 +95,8 @@ export const createNewMemo = async (newMemo: NewMemo) => {
             });
         });
         
-        console.timeEnd('createNewMemo'); // 结束计时并打印耗时
         return memo;
     } catch (error) {
-        console.timeEnd('createNewMemo'); // 确保即使出错也结束计时
         console.error("添加失败:", error);
         throw error;
     }
@@ -386,23 +385,49 @@ export const updateTagAction = async (oldName: string, newName: string) => {
 export const regenerateMemeTags = async (memoId: string) => {
     try {
         const memo = await getMemoByIdAction(memoId);
-        const tagNames = await generateTags(memo?.content || '');
-        await prisma.memo.update({
-            where: { id: memoId },
-            data: {
-                tags: {
-                    set: [], // First disconnect all existing tags
-                    connectOrCreate: tagNames.map((name: string) => ({
-                        where: { name },
-                        create: { name }
-                    }))
-                }
+        if (!memo) {
+            console.error(`Memo with id ${memoId} not found.`);
+            return null;
+        }
+
+        // Define the background task for tag generation and update
+        const backgroundTask = async () => {
+            try {
+                console.log(`[waitUntil] Starting background tag generation for memo: ${memoId}`);
+                // Use the original generateTags which calls the AI
+                const tagNames = await generateTags(memo.content || '');
+
+                // Update the memo with the generated tags
+                await prisma.memo.update({
+                    where: { id: memoId },
+                    data: {
+                        tags: {
+                            set: [], // Disconnect existing tags first
+                            connectOrCreate: tagNames.map((name: string) => ({
+                                where: { name },
+                                create: { name }
+                            }))
+                        }
+                    }
+                });
+                console.log(`[waitUntil] Background tags updated for memo: ${memoId}`, tagNames);
+
+            } catch (error) {
+                console.error(`[waitUntil] Error in background tag generation/update for memo ${memoId}:`, error);
+                // Consider more robust error logging/handling for background tasks
             }
-        });
-        console.log('新生成的标签:', tagNames);
+        };
+
+        // Schedule the background task using waitUntil
+        // NOTE: This assumes waitUntil is available in the execution context.
+        waitUntil(backgroundTask());
+
+        console.log(`Tag regeneration initiated via waitUntil for memo: ${memoId}`);
+        // Return the memo immediately, the background task runs after the response
         return memo;
     } catch (error) {
-        console.error(error);
+        // This catches errors in the main flow (e.g., getMemoByIdAction)
+        console.error(`Error initiating tag regeneration for memo ${memoId}:`, error);
         return null;
     }
 };

@@ -1,11 +1,11 @@
 'use server';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { API_URL } from './config';
+import { PAGE_CONTENT_API_URL } from './config';
 
 export const fetchTitle = async (url: string): Promise<string> => {
     try {
-        const apiUrl = `${API_URL}/api/page-scraper/content?url=${encodeURIComponent(url)}`;
+        const apiUrl = `${PAGE_CONTENT_API_URL}/api/page-scraper/content?url=${encodeURIComponent(url)}`;
         const { data } = await axios.get(apiUrl, {
             timeout: 20000
         });

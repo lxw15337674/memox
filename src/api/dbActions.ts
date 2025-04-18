@@ -63,6 +63,7 @@ export const getMemosDataActions = async ({ filter, desc = Desc.DESC, page = 1 }
 };
 
 export const createNewMemo = async (newMemo: NewMemo) => {
+    console.time('createNewMemo'); // 开始计时
     try {
         const { content, images, link, created_time, last_edited_time, tags } = newMemo;
         const tagNames: string[] = tags && tags.length > 0 ? tags : [];
@@ -93,8 +94,10 @@ export const createNewMemo = async (newMemo: NewMemo) => {
             });
         });
         
+        console.timeEnd('createNewMemo'); // 结束计时并打印耗时
         return memo;
     } catch (error) {
+        console.timeEnd('createNewMemo'); // 确保即使出错也结束计时
         console.error("添加失败:", error);
         throw error;
     }

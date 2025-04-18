@@ -1,7 +1,7 @@
 'use client'
-import React, { useEffect } from 'react';
+import React from 'react';
 import Editor from '@/components/Editor';
-import { useRequest, useSessionStorageState, useDebounceFn } from 'ahooks';
+import { useRequest, useSessionStorageState } from 'ahooks';
 import { createNewMemo, regenerateMemeTags } from '../src/api/dbActions';
 import useMemoStore from '../src/store/memo';
 import { useToast } from '../src/components/ui/use-toast';

@@ -5,9 +5,11 @@ import { PAGE_CONTENT_API_URL } from './config';
 
 export const fetchTitle = async (url: string): Promise<string> => {
     try {
-        const apiUrl = `${PAGE_CONTENT_API_URL}/api/page-scraper/content?url=${encodeURIComponent(url)}`;
-        const { data } = await axios.get(apiUrl, {
-            timeout: 20000
+        const apiUrl = `${PAGE_CONTENT_API_URL}/api/page-scraper`;
+        const { data } = await axios.post(apiUrl, {
+            url: url
+        }, {
+            timeout: 30000 // 设置30秒超时
         });
         if (data?.title) {
             return data.title;

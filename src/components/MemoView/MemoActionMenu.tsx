@@ -73,8 +73,8 @@ const MemoActionMenu = ({ memoId, onEdit, parsedContent }: Props) => {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="px-2">
-          <Icon.MoreVertical size={20} />
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+          <Icon.MoreVertical size={16} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>

@@ -87,8 +87,8 @@ const MemoView = ({
     />
   }
   return (
-    <Card className={`p-3 relative ${isLoading ? 'opacity-70' : ''}`}>
-      <div className="flex justify-between items-start">
+    <Card className={`p-3 relative h-full flex flex-col ${isLoading ? 'opacity-70' : ''}`}>
+      <div className="flex justify-between items-start flex-1">
         <div className="flex-1 min-w-0">
           <MemoContent content={content} />
         </div>
@@ -124,8 +124,8 @@ const MemoView = ({
         </div>
       )}
 
-      {/* Tags and time in the same row */}
-      <div className="flex justify-between items-end mt-3">
+      {/* Tags and time in the same row - always at bottom */}
+      <div className="flex justify-between items-end mt-auto pt-3">
         <div className="flex flex-wrap gap-1.5">
           {tags.map((tag) => (
             <Tag

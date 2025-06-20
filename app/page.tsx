@@ -15,8 +15,8 @@ export default async function Home() {
       <LeftSide />
       <div className="flex-1 md:ml-40 md:pl-6 px-4 overflow-hidden">
         <main className="flex flex-col h-full md:mr-60">
-          <div className="w-full mt-4 flex flex-col flex-grow overflow-hidden">
-            <div className="mb-4" id='edit'>
+          <div className="w-full md:mt-4  flex flex-col flex-grow overflow-hidden">
+            <div className="mb-2" id='edit'>
               <NewMemoEditor />
             </div>
             <MemoFilter />

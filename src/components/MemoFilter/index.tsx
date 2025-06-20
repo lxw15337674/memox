@@ -37,7 +37,7 @@ const MemoFilter = (props: Props) => {
   return (
     <div
       className={classNames(
-        `mb-4 w-full flex flex-row   flex-wrap gap-2 text-sm leading-7 dark:text-gray-400`,
+        `mb-2 w-full flex flex-row   flex-wrap gap-2 text-sm leading-7 dark:text-gray-400`,
         props.className,
       )}
     >

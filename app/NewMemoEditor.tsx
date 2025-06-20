@@ -44,13 +44,9 @@ const NewMemoEditor: React.FC = () => {
         }
     });
 
-    const handleSubmit = async (memo: any) => {
-        return await createRecord(memo);
-    };
-
     return (
         <Editor 
-            onSubmit={handleSubmit} 
+            onSubmit={createRecord} 
             defaultValue={editorCache?.content || ''}
             defaultImages={editorCache?.images || []}
             onChange={updateCache}

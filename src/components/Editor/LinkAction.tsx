@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import Icon from '../Icon'
-import { ExternalLinkIcon } from 'lucide-react'
+import { ExternalLinkIcon, X } from 'lucide-react'
 import { fetchTitle } from '../../api/requestActions'
 import { toast } from '../ui/use-toast'
 export interface LinkType {
@@ -27,6 +27,12 @@ export default function LinkAction({ link, setLink }: Props) {
     const [text, setText] = useState(link?.text ?? '')
     const [loading, setLoading] = useState(false)
 
+    // Update local state when link prop changes
+    useEffect(() => {
+        setUrl(link?.url ?? '')
+        setText(link?.text ?? '')
+    }, [link])
+
     const handleSubmit = async () => {
         setLoading(true)
         setIsOpen(false)
@@ -39,6 +45,23 @@ export default function LinkAction({ link, setLink }: Props) {
         setText(title)
         setLink({ url, text: title })
         setLoading(false)
+    }
+
+    const handleClear = () => {
+        setUrl('')
+        setText('')
+        setLink(undefined)
+        setIsOpen(false)
+        toast({
+            title: `链接已清空`,
+            variant: 'default'
+        });
+    }
+
+    const handleQuickClear = (e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        handleClear()
     }
 
     const isValidUrl = (string: string) => {
@@ -54,15 +77,17 @@ export default function LinkAction({ link, setLink }: Props) {
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
             <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon"
-                    title={text}
-                    className={`${link?.url ? 'text-blue-800 dark:text-blue-400' : ''}`}>
-                    {
-                        loading ? (
-                            <Icon.Loader2 className="animate-spin" size={20} />
-                        ) : <Icon.Link2 size={20} />
-                    }
-                </Button>
+                <div className="relative">
+                    <Button variant="ghost" size="icon"
+                        title={text || '添加链接'}
+                        className={`${link?.url ? 'text-blue-800 dark:text-blue-400' : ''}`}>
+                        {
+                            loading ? (
+                                <Icon.Loader2 className="animate-spin" size={20} />
+                            ) : <Icon.Link2 size={20} />
+                        }
+                    </Button>
+                </div>
             </PopoverTrigger>
             <PopoverContent className="w-80">
                 <div className="space-y-4">
@@ -100,9 +125,22 @@ export default function LinkAction({ link, setLink }: Props) {
                             onChange={(e) => setText(e.target.value)}
                         />
                     </div>
-                    <Button onClick={handleSubmit} className="w-full" disabled={!isValidUrl(url) || loading}>
-                        提交
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button onClick={handleSubmit} className="flex-1" disabled={!isValidUrl(url) || loading}>
+                            提交
+                        </Button>
+                        {/* Clear button in popover */}
+                        {(link?.url || url) && (
+                            <Button
+                                variant="destructive"
+                                onClick={handleClear}
+                                disabled={loading}
+                                className="px-4"
+                            >
+                                清空
+                            </Button>
+                        )}
+                    </div>
                 </div>
             </PopoverContent>
         </Popover>

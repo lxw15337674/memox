@@ -15,31 +15,19 @@ import { Note, NewMemo } from '../../api/type';
 
 interface MemoContentProps {
   content: string;
-  isRecentTime: boolean;
-  time: string;
-  createdAt: string;
 }
 
-const MemoContent = React.memo(({ content, isRecentTime, time, createdAt }: MemoContentProps) => (
-  <div className="flex flex-col gap-1">
-    <div className="text-xs text-gray-500">
-      {isRecentTime ? (
-        <time dateTime={createdAt}>
-          {new Date(createdAt).toLocaleString()}
-        </time>
-      ) : time}
-    </div>
-    <div className="text-sm space-y-1">
-      {content.split('\n').map((text, index) => (
-        <p key={index} className="whitespace-pre-wrap break-words leading-6">
-          {parseContent(text).map((subItem, subIndex) => (
-            subItem.type !== 'tag' ? (
-              <span key={subItem.text + subIndex}>{subItem.text}</span>
-            ) : null
-          ))}
-        </p>
-      ))}
-    </div>
+const MemoContent = React.memo(({ content }: MemoContentProps) => (
+  <div className="text-sm space-y-1">
+    {content.split('\n').map((text, index) => (
+      <p key={index} className="whitespace-pre-wrap break-words leading-6">
+        {parseContent(text).map((subItem, subIndex) => (
+          subItem.type !== 'tag' ? (
+            <span key={subItem.text + subIndex}>{subItem.text}</span>
+          ) : null
+        ))}
+      </p>
+    ))}
   </div>
 ));
 
@@ -101,13 +89,8 @@ const MemoView = ({
   return (
     <Card className={`p-3 relative ${isLoading ? 'opacity-70' : ''}`}>
       <div className="flex justify-between items-start">
-        <div className="flex-1 min-w-0 mr-2">
-          <MemoContent
-            content={content}
-            isRecentTime={isRecentTime}
-            time={time}
-            createdAt={createdAt as unknown as string}
-          />
+        <div className="flex-1 min-w-0">
+          <MemoContent content={content} />
         </div>
         <MemoActionMenu
           memoId={id}
@@ -141,8 +124,9 @@ const MemoView = ({
         </div>
       )}
 
-      {tags.length > 0 && (
-        <div className='flex flex-wrap gap-1.5 mt-3'>
+      {/* Tags and time in the same row */}
+      <div className="flex justify-between items-end mt-3">
+        <div className="flex flex-wrap gap-1.5">
           {tags.map((tag) => (
             <Tag
               key={tag.id}
@@ -153,7 +137,14 @@ const MemoView = ({
             </Tag>
           ))}
         </div>
-      )}
+        <div className="text-xs text-gray-500 flex-shrink-0">
+          {isRecentTime ? (
+            <time dateTime={createdAt as unknown as string}>
+              {new Date(createdAt as unknown as string).toLocaleString()}
+            </time>
+          ) : time}
+        </div>
+      </div>
     </Card>
   );
 };

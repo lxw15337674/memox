@@ -132,55 +132,115 @@ export const getMemoByIdAction = async (id: string) => {
     }
 };
 
+// 快速更新memo，不进行AI标签生成（适用于频繁保存场景）
+export const updateMemoQuickAction = async (id: string, newMemo: NewMemo) => {
+    try {
+        const { content, images, link } = newMemo;
+
+        const updatedMemo = await prisma.$transaction(async (tx) => {
+            const existingMemo = await tx.memo.findUnique({
+                where: { id },
+                select: {
+                    link: { select: { id: true } }
+                }
+            });
+
+            if (!existingMemo) {
+                throw new Error('Memo not found');
+            }
+
+            return await tx.memo.update({
+                where: { id },
+                data: {
+                    content,
+                    images: images || [],
+                    updatedAt: new Date(),
+                    link: {
+                        ...((!existingMemo?.link && !link) ? {} :
+                            (!link ? { delete: true } :
+                                (!existingMemo?.link ? { create: { url: link.url, text: link.text } } :
+                                    { update: { url: link.url, text: link.text } })))
+                    }
+                },
+                include: {
+                    link: true,
+                    tags: true
+                }
+            });
+        });
+
+        return updatedMemo.id;
+    } catch (error) {
+        console.error("快速更新失败:", error);
+        return null;
+    }
+};
+
+// 完整更新memo，包含AI标签生成（适用于完成编辑后的最终保存）
 export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
 
-        // 获取现有的memo数据
-        const existingMemo = await prisma.memo.findUnique({
-            where: { id },
-            include: { link: true }
-        });
-
-        // 更新memo
-        const updatedMemo = await prisma.memo.update({
-            where: { id },
-            data: {
-                content,
-                images: images || [],
-                link: {
-                    // 如果当前没有link且新数据也没有link，不做任何操作
-                    ...((!existingMemo?.link && !link) ? {} : 
-                    // 如果新数据没有link但原来有，删除原有link
-                    (!link ? { delete: true } : 
-                    // 如果原来没有link但现在有，创建新link
-                    (!existingMemo?.link ? { create: { url: link.url, text: link.text } } :
-                    // 如果都有link，更新现有link
-                    { update: { url: link.url, text: link.text } })))
+        // 使用事务优化数据库操作，减少往返次数
+        const updatedMemo = await prisma.$transaction(async (tx) => {
+            // 获取现有的memo数据（仅在需要时查询必要字段）
+            const existingMemo = await tx.memo.findUnique({
+                where: { id },
+                select: {
+                    content: true,
+                    link: { select: { id: true } }
                 }
-            },
-            include: {
-                link: true,
-                tags: true
+            });
+
+            if (!existingMemo) {
+                throw new Error('Memo not found');
             }
+
+            // 更新memo - 合并所有更新操作到单次查询
+            return await tx.memo.update({
+                where: { id },
+                data: {
+                    content,
+                    images: images || [],
+                    updatedAt: new Date(),
+                    link: {
+                        // 优化link处理逻辑
+                        ...((!existingMemo?.link && !link) ? {} : 
+                            (!link ? { delete: true } : 
+                                (!existingMemo?.link ? { create: { url: link.url, text: link.text } } :
+                                    { update: { url: link.url, text: link.text } })))
+                    }
+                },
+                include: {
+                    link: true,
+                    tags: true
+                }
+            });
         });
 
-        // 处理标签生成和更新
-        const tagNames = await generateTags(content);
-        if (tagNames.length > 0) {
+        // 异步处理标签生成和更新 - 不阻塞主响应
+        const backgroundTagUpdate = async () => {
+            console.log(`[waitUntil] Starting background tag generation for memo: ${id}`);
+
+            const tagNames = await generateTags(updatedMemo.content);
+
             await prisma.memo.update({
                 where: { id },
                 data: {
                     tags: {
-                        set: [],
-                        connectOrCreate: (tagNames ?? [])?.map((name: string) => ({
+                        set: [], // 清除现有标签
+                        connectOrCreate: tagNames.map((name: string) => ({
                             where: { name },
                             create: { name }
                         }))
                     }
                 }
             });
-        }
+        };
+        // 使用 waitUntil 确保标签更新在后台完成，不影响响应速度
+        waitUntil(backgroundTagUpdate());
+
+        // 立即返回更新结果，不等待标签生成
         return updatedMemo.id;
     } catch (error) {
         console.error("更新失败:", error);
@@ -380,6 +440,45 @@ export const updateTagAction = async (oldName: string, newName: string) => {
     });
 
     return updatedTag;
+};
+
+// 手动触发标签重新生成（同步版本，用于用户主动触发）
+export const updateMemoTagsAction = async (memoId: string) => {
+    try {
+        const memo = await getMemoByIdAction(memoId);
+        if (!memo) {
+            console.error(`Memo with id ${memoId} not found.`);
+            return null;
+        }
+
+        if (!memo.content || memo.content.trim().length < 5) {
+            console.log(`Content too short for tag generation: ${memoId}`);
+            return memo;
+        }
+
+        // 同步生成标签（用户主动触发时可以等待）
+        const tagNames = await generateTags(memo.content);
+
+        if (tagNames && tagNames.length > 0) {
+            await prisma.memo.update({
+                where: { id: memoId },
+                data: {
+                    tags: {
+                        set: [],
+                        connectOrCreate: tagNames.map((name: string) => ({
+                            where: { name },
+                            create: { name }
+                        }))
+                    }
+                }
+            });
+        }
+
+        return { id: memoId, tags: tagNames };
+    } catch (error) {
+        console.error(`Error updating tags for memo ${memoId}:`, error);
+        return null;
+    }
 };
 
 export const regenerateMemeTags = async (memoId: string) => {

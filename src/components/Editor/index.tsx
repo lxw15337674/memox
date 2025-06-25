@@ -173,7 +173,7 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink, 
     <div className={`relative w-auto overflow-x-hidden h-full border bg-background rounded-md transition-colors duration-200 ${isFocused ? 'border-blue-500' : 'border-input'}`}>
       <div className="flex flex-col h-full">
         <AutosizeTextarea
-          className='resize-none border-none text-base p-3 min-h-[120px] flex-1'
+          className='resize-none border-none text-base p-3 '
           placeholder="此刻的想法..."
           value={content}
           ref={(ref) => setEditorRef(ref?.textArea ?? null)}

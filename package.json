@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@github/relative-time-element": "^4.4.8",
+    "@libsql/client": "^0.15.9",
     "@prisma/client": "^6.10.1",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-avatar": "^1.1.10",
@@ -37,6 +38,7 @@
     "classnames": "^2.5.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "dotenv": "^16.6.0",
     "html-to-image": "^1.11.13",
     "immer": "^10.1.1",
     "lodash-es": "^4.17.21",

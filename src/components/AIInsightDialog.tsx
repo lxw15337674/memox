@@ -42,43 +42,43 @@ const InsightCard: React.FC<{ insight: AIInsight }> = ({ insight }) => {
     };
 
     return (
-        <Card className="mb-4">
-            <CardHeader className="pb-3">
+        <Card className="mb-2">
+            <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         {getTypeIcon(insight.type)}
                         <CardTitle className="text-base">{insight.title}</CardTitle>
                     </div>
-                    <Badge variant="secondary" className={getConfidenceColor(insight.confidence)}>
-                        {insight.confidence}信度
+                    <Badge variant="secondary" className={`text-xs px-2 py-0.5 ${getConfidenceColor(insight.confidence)}`}>
+                        {insight.confidence}
                     </Badge>
                 </div>
-                <Badge variant="outline" className="w-fit">
+                <Badge variant="outline" className="w-fit text-xs px-2 py-0.5">
                     {insight.type}
                 </Badge>
             </CardHeader>
-            <CardContent className="space-y-3">
-                <div className="text-sm text-muted-foreground leading-relaxed">
+            <CardContent className="pt-0 space-y-2">
+                <div className="text-sm text-muted-foreground leading-normal">
                     {insight.content}
                 </div>
 
                 {insight.evidence && (
-                    <div className="border-l-4 border-blue-200 pl-3 py-2 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800">
-                        <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">
+                    <div className="border-l-4 border-blue-200 pl-2 py-1.5 bg-blue-50/50 dark:bg-blue-900/10 dark:border-blue-800">
+                        <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-0.5">
                             支撑证据
                         </div>
-                        <div className="text-xs text-blue-600 dark:text-blue-400">
+                        <div className="text-xs text-blue-600 dark:text-blue-400 leading-relaxed">
                             {insight.evidence}
                         </div>
                     </div>
                 )}
 
                 {insight.suggestion && (
-                    <div className="border-l-4 border-green-200 pl-3 py-2 bg-green-50 dark:bg-green-900/20 dark:border-green-800">
-                        <div className="text-xs font-medium text-green-700 dark:text-green-300 mb-1">
+                    <div className="border-l-4 border-green-200 pl-2 py-1.5 bg-green-50/50 dark:bg-green-900/10 dark:border-green-800">
+                        <div className="text-xs font-medium text-green-700 dark:text-green-300 mb-0.5">
                             思考建议
                         </div>
-                        <div className="text-xs text-green-600 dark:text-green-400">
+                        <div className="text-xs text-green-600 dark:text-green-400 leading-relaxed">
                             {insight.suggestion}
                         </div>
                     </div>
@@ -113,38 +113,38 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-                <DialogHeader className="flex-shrink-0">
-                    <DialogTitle className="flex items-center gap-2">
-                        <Icon.Brain size={20} />
+                <DialogHeader className="flex-shrink-0 pb-2">
+                    <DialogTitle className="flex items-center gap-2 text-base">
+                        <Icon.Brain size={18} />
                         AI 洞察分析
                     </DialogTitle>
-                    <DialogDescription>
+                    <DialogDescription className="text-sm">
                         基于你的笔记内容，发现思考模式和行为规律
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto">
                     {!insightData && !loading && (
-                        <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                            <Icon.Brain size={48} className="text-muted-foreground" />
-                            <div className="text-center space-y-2">
-                                <h3 className="text-lg font-medium">开始你的洞察之旅</h3>
+                        <div className="flex flex-col items-center justify-center py-8 space-y-3">
+                            <Icon.Brain size={40} className="text-muted-foreground" />
+                            <div className="text-center space-y-1">
+                                <h3 className="text-base font-medium">开始你的洞察之旅</h3>
                                 <p className="text-sm text-muted-foreground max-w-md">
                                     AI将分析你的笔记内容，发现隐藏的思考模式、情感规律和成长轨迹
                                 </p>
                             </div>
                             <Button onClick={handleGenerate} className="flex items-center gap-2">
-                                <Icon.Sparkles size={16} />
+                                <Icon.Sparkles size={14} />
                                 生成洞察报告
                             </Button>
                         </div>
                     )}
 
                     {loading && (
-                        <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                            <Icon.Loader2 size={32} className="animate-spin text-primary" />
-                            <div className="text-center space-y-2">
-                                <h3 className="text-lg font-medium">AI正在分析你的笔记...</h3>
+                        <div className="flex flex-col items-center justify-center py-8 space-y-3">
+                            <Icon.Loader2 size={28} className="animate-spin text-primary" />
+                            <div className="text-center space-y-1">
+                                <h3 className="text-base font-medium">AI正在分析你的笔记...</h3>
                                 <p className="text-sm text-muted-foreground">
                                     这可能需要几十秒，请耐心等待
                                 </p>
@@ -153,24 +153,24 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
                     )}
 
                     {insightData && (
-                        <div className="space-y-6">
+                        <div className="space-y-4">
                             {/* 总览 */}
                             <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <Icon.Eye size={18} />
+                                <CardHeader className="pb-2">
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <Icon.Eye size={16} />
                                         洞察总览
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent>
-                                    <p className="text-sm leading-relaxed">{insightData.overview}</p>
+                                <CardContent className="pt-0">
+                                    <p className="text-sm leading-normal">{insightData.overview}</p>
                                 </CardContent>
                             </Card>
 
                             {/* 主要洞察 */}
                             <div>
-                                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                                    <Icon.Lightbulb size={18} />
+                                <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                                    <Icon.Lightbulb size={16} />
                                     核心洞察 ({insightData.insights.length})
                                 </h3>
                                 {insightData.insights.map((insight, index) => (
@@ -180,28 +180,28 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
 
                             {/* 数据模式 */}
                             <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <Icon.BarChart size={18} />
+                                <CardHeader className="pb-2">
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <Icon.BarChart size={16} />
                                         数据模式
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="space-y-4">
+                                <CardContent className="pt-0 space-y-3">
                                     <div>
-                                        <h4 className="font-medium text-sm mb-2">⏰ 时间规律</h4>
-                                        <p className="text-sm text-muted-foreground">{insightData.patterns.time_patterns}</p>
+                                        <h4 className="font-medium text-sm mb-1">⏰ 时间规律</h4>
+                                        <p className="text-sm text-muted-foreground leading-normal">{insightData.patterns.time_patterns}</p>
                                     </div>
                                     <div>
-                                        <h4 className="font-medium text-sm mb-2">🏷️ 主题频率</h4>
-                                        <p className="text-sm text-muted-foreground">{insightData.patterns.topic_frequency}</p>
+                                        <h4 className="font-medium text-sm mb-1">🏷️ 主题频率</h4>
+                                        <p className="text-sm text-muted-foreground leading-normal">{insightData.patterns.topic_frequency}</p>
                                     </div>
                                     <div>
-                                        <h4 className="font-medium text-sm mb-2">💭 情感趋势</h4>
-                                        <p className="text-sm text-muted-foreground">{insightData.patterns.emotional_trends}</p>
+                                        <h4 className="font-medium text-sm mb-1">💭 情感趋势</h4>
+                                        <p className="text-sm text-muted-foreground leading-normal">{insightData.patterns.emotional_trends}</p>
                                     </div>
                                     <div>
-                                        <h4 className="font-medium text-sm mb-2">✍️ 写作风格</h4>
-                                        <p className="text-sm text-muted-foreground">{insightData.patterns.writing_style}</p>
+                                        <h4 className="font-medium text-sm mb-1">✍️ 写作风格</h4>
+                                        <p className="text-sm text-muted-foreground leading-normal">{insightData.patterns.writing_style}</p>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -209,21 +209,21 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
                             {/* 思考问题 */}
                             {insightData.questions_to_ponder.length > 0 && (
                                 <Card>
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <Icon.HelpCircle size={18} />
+                                    <CardHeader className="pb-2">
+                                        <CardTitle className="flex items-center gap-2 text-base">
+                                            <Icon.HelpCircle size={16} />
                                             值得思考的问题
                                         </CardTitle>
-                                        <CardDescription>
+                                        <CardDescription className="text-sm">
                                             这些问题可能会帮助你进一步了解自己
                                         </CardDescription>
                                     </CardHeader>
-                                    <CardContent>
-                                        <ul className="space-y-2">
+                                    <CardContent className="pt-0">
+                                        <ul className="space-y-1.5">
                                             {insightData.questions_to_ponder.map((question, index) => (
                                                 <li key={index} className="flex items-start gap-2 text-sm">
-                                                    <Icon.ArrowRight size={14} className="mt-0.5 flex-shrink-0 text-muted-foreground" />
-                                                    <span>{question}</span>
+                                                    <Icon.ArrowRight size={12} className="mt-0.5 flex-shrink-0 text-muted-foreground" />
+                                                    <span className="leading-normal">{question}</span>
                                                 </li>
                                             ))}
                                         </ul>
@@ -232,9 +232,9 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
                             )}
 
                             {/* 重新生成按钮 */}
-                            <div className="flex justify-center pt-4">
-                                <Button variant="outline" onClick={handleGenerate} disabled={loading}>
-                                    <Icon.RefreshCw size={16} className="mr-2" />
+                            <div className="flex justify-center pt-3">
+                                <Button variant="outline" onClick={handleGenerate} disabled={loading} size="sm">
+                                    <Icon.RefreshCw size={14} className="mr-2" />
                                     重新生成洞察
                                 </Button>
                             </div>

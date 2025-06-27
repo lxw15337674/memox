@@ -3,21 +3,33 @@ import TagsSection from './TagsSection';
 import Count from './Count';
 import ActivityCalendar from '../ActivityCalendar';
 import { SearchInput } from './SearchInput';
+import { Button } from '../ui/button';
+import Icon from '../Icon';
+import { useState } from 'react';
 
-const Tools: React.FC = () => {
+interface ToolsProps {
+  onInsightClick?: () => void;
+}
+
+const Tools: React.FC<ToolsProps> = ({ onInsightClick }) => {
   return (
-    <>
-      <div className="mb-2 w-full">
-        <SearchInput />
+    <div className="space-y-4">
+      <SearchInput />
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onInsightClick}
+          className="flex items-center gap-2"
+        >
+          <Icon.Brain size={16} />
+          AI洞察
+        </Button>
       </div>
-      <div className="mb-2 w-full">
-        <Count />
-      </div>
-      <div className="mb-2 w-full">
-        <ActivityCalendar />
-      </div>
+      <Count />
+      <ActivityCalendar />
       <TagsSection />
-    </>
+    </div>
   );
 };
 

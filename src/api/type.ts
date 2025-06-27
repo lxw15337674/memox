@@ -47,4 +47,31 @@ export interface NewMemo {
 export interface TagWithCount extends Tag {
   memoCount: number;
 }
+
+export interface AIInsight {
+  type: '思考模式' | '情感规律' | '主题关联' | '回避盲点' | '成长轨迹';
+  title: string;
+  content: string;
+  evidence: string;
+  suggestion: string;
+  confidence: '高' | '中' | '低';
+}
+
+export interface InsightResponse {
+  overview: string;
+  insights: AIInsight[];
+  patterns: {
+    time_patterns: string;
+    topic_frequency: string;
+    emotional_trends: string;
+    writing_style: string;
+  };
+  questions_to_ponder: string[];
+}
+
+export interface InsightRequest {
+  timeRange?: { start: Date; end: Date };
+  maxMemos?: number;
+}
+
 export type { Filter, Note };

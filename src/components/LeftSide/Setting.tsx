@@ -18,8 +18,8 @@ import { Separator } from '../ui/separator';
 import { useRouter } from 'next/navigation';
 import { useToast } from '../ui/use-toast';
 import { useState } from 'react';
-import { downloadFile, uploadFile } from '../../utils/file';
-import { parseMastodonData } from '../../utils/importData';
+// import { downloadFile, uploadFile } from '../../utils/file';
+// import { parseMastodonData } from '../../utils/importData';
 import useImportMemos from './useImportMemos';
 import Icon from '../Icon';
 import { clearAllDataAction } from '@/api/dbActions';
@@ -31,47 +31,11 @@ export function Setting() {
     const { importData, memos, importedMemos, loading } = useImportMemos()
 
     const formatMastodonData = () => {
-        uploadFile({
-            accept: '.json',
-            multiple: false,
-            onSuccess: (files) => {
-                const file: File = files[0];
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    try {
-                        const jsonData = JSON.parse(event.target?.result as string);
-                        const memosJsonData = parseMastodonData(jsonData)
-                        downloadFile({
-                            data: JSON.stringify(memosJsonData, null, 2),
-                            filename: "formatted-mastodon-data.json"
-                        })
-                        toast({
-                            title: "解析成功",
-                            description: `已生成可导入的JSON文件，共${memosJsonData.length}条有效数据`,
-                            duration: 1000
-                        })
-                    } catch (error) {
-                        toast({
-                            variant: "destructive",
-                            title: "解析失败",
-                            description: "请检查文件内容是否正确",
-                            duration: 1000
-                        });
-                        console.error("Error parsing JSON file:", error);
-                    }
-                };
-                reader.readAsText(file);
-            },
-            onError: (error) => {
-                toast({
-                    variant: "destructive",
-                    title: "上传失败",
-                    description: "请检查文件是否正确",
-                    duration: 1000
-                })
-                console.error("Error during file upload:", error);
-                // Your code to handle the error here 
-            },
+        toast({
+            variant: "destructive",
+            title: "功能暂不可用",
+            description: "Mastodon导入功能正在维护中",
+            duration: 2000
         })
     }
 

@@ -530,3 +530,38 @@ export const regenerateMemeTags = async (memoId: string) => {
         return null;
     }
 };
+
+// 获取用于AI洞察分析的笔记数据
+export const getMemosForInsight = async (options: {
+    maxMemos?: number;
+    timeRange?: { start: Date; end: Date };
+} = {}) => {
+    try {
+        const { maxMemos = 50, timeRange } = options;
+
+        const where: any = {};
+        if (timeRange) {
+            where.createdAt = {
+                gte: timeRange.start,
+                lte: timeRange.end
+            };
+        }
+
+        const memos = await prisma.memo.findMany({
+            take: maxMemos,
+            where,
+            orderBy: {
+                createdAt: 'desc'
+            },
+            include: {
+                link: true,
+                tags: true
+            }
+        });
+
+        return memos as Note[];
+    } catch (error) {
+        console.error("获取洞察分析数据失败:", error);
+        throw error;
+    }
+};

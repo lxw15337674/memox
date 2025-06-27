@@ -18,6 +18,8 @@ import { AIInsight, InsightResponse } from '../api/type';
 interface AIInsightDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    onLoadingChange?: (loading: boolean) => void;
+    onInsightGenerated?: (hasData: boolean) => void;
 }
 
 const InsightCard: React.FC<{ insight: AIInsight }> = ({ insight }) => {
@@ -88,7 +90,7 @@ const InsightCard: React.FC<{ insight: AIInsight }> = ({ insight }) => {
     );
 };
 
-export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenChange }) => {
+export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenChange, onLoadingChange, onInsightGenerated }) => {
     const [insightData, setInsightData] = useState<InsightResponse | null>(null);
 
     const { loading, run: generateInsightReport } = useRequest(
@@ -96,12 +98,20 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
             const memos = await getMemosForInsight({ maxMemos: 50 });
             const insights = await generateInsights(memos);
             setInsightData(insights);
+            onInsightGenerated?.(true);
             return insights;
         },
         {
             manual: true,
+            onBefore: () => {
+                onLoadingChange?.(true);
+            },
+            onFinally: () => {
+                onLoadingChange?.(false);
+            },
             onError: (error) => {
                 console.error('生成洞察失败:', error);
+                onInsightGenerated?.(false);
             }
         }
     );
@@ -112,7 +122,7 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col sm:left-[10%] sm:translate-x-0">
                 <DialogHeader className="flex-shrink-0 pb-2">
                     <DialogTitle className="flex items-center gap-2 text-base">
                         <Icon.Brain size={18} />

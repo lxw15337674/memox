@@ -90,12 +90,7 @@ export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
                                         <div className="text-sm text-muted-foreground mb-1">
                                             📝 笔记 {index + 1}
                                         </div>
-                                        <div className="text-sm mb-2" style={{
-                                            display: '-webkit-box',
-                                            WebkitLineClamp: 3,
-                                            WebkitBoxOrient: 'vertical',
-                                            overflow: 'hidden'
-                                        }}>
+                                        <div className="text-sm mb-2" >
                                             {source.preview}
                                         </div>
                                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -105,16 +100,6 @@ export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
                                             )}
                                         </div>
                                     </div>
-                                    <button
-                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border"
-                                        onClick={() => {
-                                            // TODO: 实现查看完整笔记功能
-                                            console.log('View full memo:', source.id);
-                                        }}
-                                    >
-                                        <Eye className="w-3 h-3" />
-                                        查看
-                                    </button>
                                 </div>
                             </div>
                         ))}
@@ -186,7 +171,7 @@ export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[600px] h-[70vh] flex flex-col">
+            <DialogContent className="max-w-4xl  h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>AI 搜索</DialogTitle>
                     <DialogDescription>

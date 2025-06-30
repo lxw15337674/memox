@@ -122,7 +122,7 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col sm:left-[10%] sm:translate-x-0">
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
                 <DialogHeader className="flex-shrink-0 pb-2">
                     <DialogTitle className="flex items-center gap-2 text-base">
                         <Icon.Brain size={18} />

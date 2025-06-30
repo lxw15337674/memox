@@ -82,9 +82,10 @@ async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
 
                 const indexedSearchResult = await turso.execute({
                     sql: `
-                        SELECT T.id, T.content, T.created_at, T.updated_at
+                        SELECT T.id, T.content, T.created_at, T.updated_at, V.distance as similarity_score
                         FROM vector_top_k(?, ?, ?) AS V
-                        JOIN memos AS T ON T.id = V.id;
+                        JOIN memos AS T ON T.id = V.id
+                        ORDER BY V.distance ASC;
                     `,
                     args: [indexName, queryVectorBuffer, TOP_K],
                 });
@@ -200,7 +201,7 @@ export async function POST(req: Request) {
         }
 
         // Prepare sources with metadata for frontend display
-        const sources = searchResults.map(row => ({
+        const allSources = searchResults.map(row => ({
             id: String(row.id),
             content: String(row.content),
             similarity: row.similarity_score ? parseFloat(String(row.similarity_score)) : null,
@@ -215,7 +216,43 @@ export async function POST(req: Request) {
             }) : '未知日期'
         }));
 
-        const context = searchResults.map(row => String(row.content)).join("\n\n---\n\n");
+        // Filter sources to only include those with similarity > 50%
+        // similarity_score is cosine distance (lower = more similar)
+        // For 50% similarity threshold: similarity_score <= 0.5
+        const sources = allSources.filter(source => {
+            if (source.similarity === null) {
+                // For strict similarity filtering, exclude results without similarity scores
+                // This typically happens with random fallback results
+                console.log(`⚠️  Excluding source ${source.id} - no similarity score available`);
+                return false;
+            }
+            // Convert similarity score to percentage: (1 - similarity_score) * 100
+            const similarityPercentage = (1 - source.similarity) * 100;
+            const meetsThreshold = similarityPercentage > 50;
+            if (!meetsThreshold) {
+                console.log(`📊 Excluding source ${source.id} - similarity ${similarityPercentage.toFixed(1)}% <= 50%`);
+            }
+            return meetsThreshold;
+        });
+
+        console.log(`📊 Application-level filtering: ${sources.length}/${allSources.length} sources with >50% similarity`);
+
+        // If no sources meet the similarity threshold, return early
+        if (sources.length === 0) {
+            console.log("⚠️  No sources meet the 50% similarity threshold after application-level filtering");
+            return new Response(JSON.stringify({
+                answer: "很抱歉，我在你的笔记中没有找到与这个问题高度相关的内容（相似度>50%）。",
+                usage: null,
+                resultsCount: 0,
+                sources: []
+            }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        // Use filtered sources for context generation
+        const context = sources.map(source => source.content).join("\n\n---\n\n");
         console.log("📋 Context prepared, total length:", context.length, "characters");
         console.log("📊 Sources prepared:", sources.length, "items");
 
@@ -253,7 +290,7 @@ ${context}
         return new Response(JSON.stringify({
             answer: result.text,
             usage: result.usage,
-            resultsCount: searchResults.length,
+            resultsCount: sources.length,
             processingTime: duration,
             sources: sources
         }), {

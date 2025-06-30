@@ -8,6 +8,7 @@ interface MemoStore {
     fetchTags: () => void;
     getCount: () => Promise<void>;
     memosCount: MemosCount;
+    initializeWithServerData: (tags: TagWithCount[], counts: MemosCount) => void;
 }
 
 const useCountStore = create<MemoStore>()(
@@ -18,6 +19,12 @@ const useCountStore = create<MemoStore>()(
                 dailyStats: [],
                 total: 0,
                 daysCount: 0
+            },
+            initializeWithServerData: (tags: TagWithCount[], counts: MemosCount) => {
+                set({
+                    tags,
+                    memosCount: counts
+                });
             },
             fetchTags: () => {
                 getTagsWithCountAction().then(tags => {

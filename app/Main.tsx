@@ -8,23 +8,45 @@ import useConfigStore from '@/store/config';
 import SimpleMemoView from '../src/components/MemoView/SimpleMemoView';
 import { PhotoProvider } from 'react-photo-view';
 import useCountStore from '../src/store/count';
+import { Note, TagWithCount, MemosCount } from '@/api/type';
 
-export default function Main() {
-    const { memos = [], fetchInitData, fetchPagedData, databases } = useMemoStore();
-    const { fetchTags, getCount } = useCountStore();
+interface MainProps {
+    initialData?: {
+        memos: {
+            items: Note[];
+            total: number;
+        };
+        tags: TagWithCount[];
+        counts: MemosCount;
+    };
+}
+
+export default function Main({ initialData }: MainProps) {
+    const { memos = [], fetchInitData, fetchPagedData, databases, initializeWithServerData } = useMemoStore();
+    const { fetchTags, getCount, initializeWithServerData: initializeCountStore } = useCountStore();
     const { validateAccessCode, config } = useConfigStore();
     const { isSimpleMode } = config.generalConfig;
     const router = useRouter();
+
     useMount(() => {
         validateAccessCode().then((hasAccessCodePermission) => {
             if (!hasAccessCodePermission) {
                 router.push('/login')
             }
         });
-        fetchInitData();
-        fetchTags();
-        getCount();
+
+        // 如果有 SSR 数据，使用它来初始化 store
+        if (initialData) {
+            initializeWithServerData(initialData.memos);
+            initializeCountStore(initialData.tags, initialData.counts);
+        } else {
+        // 降级到客户端数据获取
+            fetchInitData();
+            fetchTags();
+            getCount();
+        }
     });
+
     return (
         <PhotoProvider>
             <InfiniteScroll

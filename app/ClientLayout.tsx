@@ -11,8 +11,20 @@ import LeftSide from '@/components/LeftSide';
 import MemoFilter from '@/components/MemoFilter';
 import MobileHeader from '../src/components/MobileHeader';
 import Tools from '@/components/Tools';
+import { Note, TagWithCount, MemosCount } from '@/api/type';
 
-export default function ClientLayout() {
+interface ClientLayoutProps {
+    initialData?: {
+        memos: {
+            items: Note[];
+            total: number;
+        };
+        tags: TagWithCount[];
+        counts: MemosCount;
+    };
+}
+
+export default function ClientLayout({ initialData }: ClientLayoutProps) {
     const [insightDialogOpen, setInsightDialogOpen] = useState(false);
     const [isInsightLoading, setIsInsightLoading] = useState(false);
     const [hasInsights, setHasInsights] = useState(false);
@@ -51,7 +63,7 @@ export default function ClientLayout() {
                         </div>
                         <MemoFilter />
                         <section className="overflow-y-auto overflow-x-hidden flex-grow">
-                            <Main />
+                            <Main initialData={initialData} />
                         </section>
                     </div>
                 </main>
@@ -70,7 +82,7 @@ export default function ClientLayout() {
 
             {/* 更新的侧边栏 - 移除AI洞察按钮 */}
             <div className="hidden md:flex h-screen overflow-hidden group flex-col justify-start items-start transition-all px-4 py-4 w-60 fixed right-0 top-0">
-                <Tools />
+                <Tools initialData={initialData} />
             </div>
         </div>
     );

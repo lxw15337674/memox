@@ -18,6 +18,7 @@ interface MemoStore {
   removeMemo: (id: string) => number;
   updateMemo: (id: string) => void;
   fetchFirstData: () => Promise<void>;
+  initializeWithServerData: (serverData: { items: Note[]; total: number }) => void;
 }
 
 const useMemoStore = create<MemoStore>()(
@@ -30,6 +31,18 @@ const useMemoStore = create<MemoStore>()(
           has_more: false,
           items: [],
           total: 0,
+        },
+        // SSR 数据初始化方法
+        initializeWithServerData: (serverData: { items: Note[]; total: number }) => {
+          set((state) => {
+            state.databases = {
+              has_more: serverData.total > serverData.items.length,
+              items: serverData.items,
+              total: serverData.total
+            };
+            state.memos = serverData.items;
+            state.currentPage = 1;
+          });
         },
         // 删除某条数据
         removeMemo: (pageId: string) => {

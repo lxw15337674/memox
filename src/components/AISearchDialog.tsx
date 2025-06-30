@@ -185,7 +185,7 @@ export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
                             <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
                                 <Bot className="w-12 h-12 mb-4" />
                                 <p>你好！有什么可以帮你的？</p>
-                                <p className="text-xs">例如: "我上次关于AI的想法是什么？"</p>
+                                <p className="text-xs">例如: &ldquo;我上次关于AI的想法是什么？&rdquo;</p>
                             </div>
                         )}
                         {messages.map(m => (

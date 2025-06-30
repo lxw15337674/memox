@@ -15,7 +15,7 @@ const AI_API_URL = `${API_URL}/api/ai/chat`;
 // --- API Config ---
 const siliconflowApiKey = process.env.SILICONFLOW_API_KEY!;
 const SILICONFLOW_API_URL = "https://api.siliconflow.cn/v1/embeddings";
-const EMBEDDING_MODEL = "BAAI/bge-large-zh-v1.5";
+const EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-4B";
 const TOP_K = 10; // Retrieve top 10 most similar memos
 
 console.log("🔧 AI Search Route initialized with config:");

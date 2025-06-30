@@ -87,7 +87,7 @@ const MemoView = ({
     />
   }
   return (
-    <Card className={`p-3 relative h-full flex flex-col ${isLoading ? 'opacity-70' : ''}`}>
+    <Card id={`memo-${id}`} className={`p-3 relative h-full flex flex-col ${isLoading ? 'opacity-70' : ''}`}>
       <div className="flex justify-between items-start flex-1">
         <div className="flex-1 min-w-0">
           <MemoContent content={content} />

@@ -1,7 +1,6 @@
 import { createClient } from "@libsql/client";
 import axios from "axios";
-import { generateText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+import { API_URL } from "../../../../src/api/config";
 
 export const runtime = "edge";
 
@@ -11,10 +10,7 @@ const turso = createClient({
     authToken: process.env.TURSO_AUTH_TOKEN!,
 });
 
-const openai = createOpenAI({
-    apiKey: process.env.MOONSHOT_API_KEY!,
-    baseURL: "https://api.moonshot.cn/v1",
-});
+const AI_API_URL = `${API_URL}/api/ai/chat`;
 
 // --- API Config ---
 const siliconflowApiKey = process.env.SILICONFLOW_API_KEY!;
@@ -24,7 +20,7 @@ const TOP_K = 10; // Retrieve top 10 most similar memos
 
 console.log("🔧 AI Search Route initialized with config:");
 console.log("- TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "✅ Set" : "❌ Missing");
-console.log("- MOONSHOT_API_KEY:", process.env.MOONSHOT_API_KEY ? "✅ Set" : "❌ Missing");
+console.log("- AI_API_URL:", AI_API_URL);
 console.log("- SILICONFLOW_API_KEY:", process.env.SILICONFLOW_API_KEY ? "✅ Set" : "❌ Missing");
 
 /**
@@ -190,8 +186,7 @@ export async function POST(req: Request) {
         if (searchResults.length === 0) {
             console.log("⚠️  No search results found");
             return new Response(JSON.stringify({
-                answer: "很抱歉，我在你的笔记中没有找到与这个问题相关的内容。",
-                usage: null,
+                answer: "🤔 我仔细翻找了你的笔记库，但没有发现与这个问题直接相关的内容。\n\n**建议尝试：**\n- 换个角度重新描述问题\n- 使用更具体或更宽泛的关键词\n- 确认相关内容是否已经记录在笔记中\n\n也许你可以先记录一些相关想法，让我下次能更好地帮助你！",
                 resultsCount: 0,
                 sources: []
             }), {
@@ -241,8 +236,7 @@ export async function POST(req: Request) {
         if (sources.length === 0) {
             console.log("⚠️  No sources meet the 50% similarity threshold after application-level filtering");
             return new Response(JSON.stringify({
-                answer: "很抱歉，我在你的笔记中没有找到与这个问题高度相关的内容（相似度>50%）。",
-                usage: null,
+                answer: "🔍 我找到了一些笔记内容，但它们与你的问题关联度不够高（相似度<50%）。\n\n**为了获得更精准的结果，建议：**\n- 尝试使用更具体的描述或关键词\n- 换个角度重新组织问题\n- 检查是否有相关笔记使用了不同的表达方式\n\n你的问题很有价值，也许可以先记录一些相关思考，帮助我未来更好地理解你的需求！",
                 resultsCount: 0,
                 sources: []
             }), {
@@ -258,38 +252,66 @@ export async function POST(req: Request) {
 
         // 3. Build the prompt for the language model
         console.log("\n📍 Step 3: Building prompt for LLM...");
-        const prompt = `
-你是一个有用的助手，基于用户的个人笔记内容来回答问题。
-用户的问题是："${trimmedQuery}"
 
-以下是最相关的笔记内容：
----
-${context}
----
+        // Enhanced role prompt with better analysis and presentation
+        const rolePrompt = `
+        你是一个智能的笔记助手，专门帮助用户从他们的个人笔记库中挖掘有价值的信息和洞察。
 
-请基于这些笔记内容提供一个全面的回答。如果笔记中没有包含足够的信息来回答问题，请明确告知你在笔记中找不到相关答案。
-请保持回答简洁明了，并尽可能引用具体的笔记内容。
-`;
+        ## 你的核心能力：
+        1. **深度理解**：能够理解用户问题的真实意图，包括显性和隐性需求
+        2. **关联挖掘**：从看似无关的笔记中发现潜在联系和模式
+        3. **智能整合**：将分散的信息整合成有启发性的回答
+        4. **个性化呈现**：基于用户的思考风格和记录习惯提供定制化答案
 
-        // 4. Generate the answer using Moonshot's chat model
-        console.log("\n📍 Step 4: Generating answer with Moonshot...");
-        const result = await generateText({
-            model: openai("moonshot-v1-8k"),
-            messages: [{ role: "user", content: prompt }],
-            maxTokens: 1000,
-            temperature: 0.7,
+        ## 当前查询的相关笔记内容：
+        ---
+        ${context}
+        ---
+
+        ## 回答指引：
+        请基于以上笔记内容，为用户提供一个**有深度、有启发**的回答。具体要求：
+
+        ### 📝 内容分析
+        - 仔细分析用户问题的层次（表面问题 vs 深层需求）
+        - 识别笔记中的关键信息、观点和模式
+        - 发现不同笔记之间的关联和矛盾
+
+        ### 🔍 答案结构
+        1. **核心回答**：直接回应用户的问题
+        2. **关键洞察**：从笔记中提炼的重要发现或启发
+        3. **相关思考**：相关的其他观点或延伸思考
+        4. **实用建议**：基于笔记内容的可行建议（如果适用）
+
+        ### 💡 呈现要求
+        - 保持回答**简洁而深入**，避免冗长
+        - **引用具体的笔记片段**来支持观点
+        - 如果发现有趣的关联或矛盾，请指出
+        - 用温暖、启发性的语气，就像一个了解你的朋友
+
+        ### ⚠️ 特殊情况处理
+        - 如果笔记内容不足以回答问题，诚实说明并建议用户如何改进查询
+        - 如果发现多个不同观点，客观呈现并帮助用户思考
+        - 对于时间相关的查询，注意笔记的时间脉络和演变
+
+        记住：你的目标不仅是回答问题，更是要帮助用户从自己的思考记录中获得新的启发和洞察。
+        `;
+
+        // 4. Generate the answer using AI API
+        console.log("\n📍 Step 4: Generating answer with AI API...");
+        const response = await axios.post(AI_API_URL, {
+            prompt: trimmedQuery,
+            rolePrompt
         });
 
+        const answer = response.data;
         console.log("✅ Answer generated successfully");
-        console.log("📊 Usage stats:", result.usage);
 
         const duration = (Date.now() - startTime) / 1000;
         console.log(`\n🎉 AI Search completed successfully in ${duration.toFixed(2)}s`);
 
         // 5. Return the complete response as JSON
         return new Response(JSON.stringify({
-            answer: result.text,
-            usage: result.usage,
+            answer,
             resultsCount: sources.length,
             processingTime: duration,
             sources: sources

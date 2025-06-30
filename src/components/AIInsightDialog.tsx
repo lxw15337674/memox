@@ -11,8 +11,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import Icon from './Icon';
 import { useRequest } from 'ahooks';
-import { generateInsights } from '../api/aiActions';
-import { getMemosForInsight } from '../api/dbActions';
 import { AIInsight, InsightResponse } from '../api/type';
 
 interface AIInsightDialogProps {
@@ -95,11 +93,25 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
 
     const { loading, run: generateInsightReport } = useRequest(
         async () => {
-            const memos = await getMemosForInsight({ maxMemos: 50 });
-            const insights = await generateInsights(memos);
-            setInsightData(insights);
+            const response = await fetch('/api/ai/insights', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    maxMemos: 50
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to generate insights');
+            }
+
+            setInsightData(data);
             onInsightGenerated?.(true);
-            return insights;
+            return data;
         },
         {
             manual: true,

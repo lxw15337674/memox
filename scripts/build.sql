@@ -1,21 +1,28 @@
 -- 1. 安全地删除旧的表和索引
 DROP INDEX IF EXISTS memos_embedding_idx;
-DROP INDEX IF EXISTS memo_embeddings_idx;
-DROP TABLE IF EXISTS memo_vectors;
 DROP TABLE IF EXISTS _MemoToTag;
-DROP TABLE IF EXISTS tags;
 DROP TABLE IF EXISTS links;
+DROP TABLE IF EXISTS tags;
 DROP TABLE IF EXISTS memos;
+DROP TABLE IF EXISTS sync_metadata;
 
 -- 2. 重新创建所有基础表
+
+-- 用于记录同步状态
+CREATE TABLE IF NOT EXISTS sync_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- 笔记表，更新了向量维度和添加了 deleted_at
 CREATE TABLE memos (
     id TEXT PRIMARY KEY NOT NULL,
     content TEXT NOT NULL,
     images TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    -- 直接在这里定义向量列
-    embedding F32_BLOB(1024) 
+    deleted_at TEXT,
+    embedding F32_BLOB(2560)
 );
 
 CREATE TABLE links (
@@ -24,7 +31,7 @@ CREATE TABLE links (
     text TEXT,
     memo_id TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
-    FOREIGN KEY (memo_id) REFERENCES memos(id)
+    FOREIGN KEY (memo_id) REFERENCES memos(id) ON DELETE CASCADE
 );
 
 CREATE TABLE tags (
@@ -36,8 +43,8 @@ CREATE TABLE tags (
 CREATE TABLE _MemoToTag (
     A TEXT NOT NULL,
     B TEXT NOT NULL,
-    FOREIGN KEY(A) REFERENCES memos(id),
-    FOREIGN KEY(B) REFERENCES tags(id),
+    FOREIGN KEY(A) REFERENCES memos(id) ON DELETE CASCADE,
+    FOREIGN KEY(B) REFERENCES tags(id) ON DELETE CASCADE,
     PRIMARY KEY (A, B)
 );
 

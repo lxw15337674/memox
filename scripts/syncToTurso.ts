@@ -20,8 +20,8 @@ console.log("- SiliconFlow API 密钥:", process.env.SILICONFLOW_API_KEY ? "✅ 
 // --- API 配置 ---
 const siliconflowApiKey = process.env.SILICONFLOW_API_KEY;
 const SILICONFLOW_API_URL = "https://api.siliconflow.cn/v1/embeddings";
-const EMBEDDING_MODEL = "BAAI/bge-large-zh-v1.5";
-const BATCH_SIZE = 16;
+const EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-4B";
+const BATCH_SIZE = 32;
 
 if (!siliconflowApiKey) {
     throw new Error("环境变量中未定义 SILICONFLOW_API_KEY。");
@@ -40,24 +40,6 @@ async function getEmbeddings(texts: string[]): Promise<number[][]> {
         { headers: { Authorization: `Bearer ${siliconflowApiKey}`, "Content-Type": "application/json" } }
     );
     return response.data.data.sort((a: any, b: any) => a.index - b.index).map((item: any) => item.embedding);
-}
-
-/**
- * 确保 Turso 数据库中有必要的元数据表和列。
- */
-async function setupTurso(turso: Client) {
-    await turso.execute(`
-        CREATE TABLE IF NOT EXISTS sync_metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-    `);
-    const memoTableInfo = await turso.execute("PRAGMA table_info(memos);");
-    // @ts-ignore
-    const hasDeletedAt = memoTableInfo.rows.some(row => row.name === "deleted_at");
-    if (!hasDeletedAt) {
-        await turso.execute("ALTER TABLE memos ADD COLUMN deleted_at TEXT;");
-    }
 }
 
 /**
@@ -117,7 +99,6 @@ async function main() {
 
     let lastSyncTimestamp = "1970-01-01T00:00:00.000Z";
     try {
-        await setupTurso(turso);
         const result = await turso.execute({
             sql: "SELECT value FROM sync_metadata WHERE key = ?;",
             args: ["last_successful_sync"],

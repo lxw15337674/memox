@@ -20,7 +20,7 @@ const openai = createOpenAI({
 const siliconflowApiKey = process.env.SILICONFLOW_API_KEY!;
 const SILICONFLOW_API_URL = "https://api.siliconflow.cn/v1/embeddings";
 const EMBEDDING_MODEL = "BAAI/bge-large-zh-v1.5";
-const TOP_K = 5; // Retrieve top 5 most similar memos
+const TOP_K = 10; // Retrieve top 10 most similar memos
 
 console.log("🔧 AI Search Route initialized with config:");
 console.log("- TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "✅ Set" : "❌ Missing");
@@ -82,7 +82,7 @@ async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
 
                 const indexedSearchResult = await turso.execute({
                     sql: `
-                        SELECT T.id, T.content
+                        SELECT T.id, T.content, T.created_at, T.updated_at
                         FROM vector_top_k(?, ?, ?) AS V
                         JOIN memos AS T ON T.id = V.id;
                     `,
@@ -106,7 +106,7 @@ async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
         console.log("🔄 Using full table scan with vector distance calculation...");
         const fullScanResult = await turso.execute({
             sql: `
-                SELECT id, content, 
+                SELECT id, content, created_at, updated_at,
                        vector_distance_cos(embedding, ?) as similarity_score
                 FROM memos 
                 WHERE embedding IS NOT NULL
@@ -121,7 +121,8 @@ async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
             console.log("📊 Full scan results preview:", fullScanResult.rows.slice(0, 2).map(row => ({
                 id: row.id,
                 content: String(row.content).substring(0, 50) + "...",
-                similarity: row.similarity_score
+                similarity: row.similarity_score,
+                created_at: row.created_at
             })));
         }
 
@@ -134,7 +135,7 @@ async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
         try {
             const fallbackResult = await turso.execute({
                 sql: `
-                    SELECT id, content
+                    SELECT id, content, created_at, updated_at
                     FROM memos 
                     WHERE embedding IS NOT NULL
                     ORDER BY RANDOM()
@@ -190,15 +191,33 @@ export async function POST(req: Request) {
             return new Response(JSON.stringify({
                 answer: "很抱歉，我在你的笔记中没有找到与这个问题相关的内容。",
                 usage: null,
-                resultsCount: 0
+                resultsCount: 0,
+                sources: []
             }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }
             });
         }
 
+        // Prepare sources with metadata for frontend display
+        const sources = searchResults.map(row => ({
+            id: String(row.id),
+            content: String(row.content),
+            similarity: row.similarity_score ? parseFloat(String(row.similarity_score)) : null,
+            preview: String(row.content).substring(0, 150) + (String(row.content).length > 150 ? "..." : ""),
+            createdAt: row.created_at ? String(row.created_at) : null,
+            updatedAt: row.updated_at ? String(row.updated_at) : null,
+            // Format date for display
+            displayDate: row.created_at ? new Date(String(row.created_at)).toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            }) : '未知日期'
+        }));
+
         const context = searchResults.map(row => String(row.content)).join("\n\n---\n\n");
         console.log("📋 Context prepared, total length:", context.length, "characters");
+        console.log("📊 Sources prepared:", sources.length, "items");
 
         // 3. Build the prompt for the language model
         console.log("\n📍 Step 3: Building prompt for LLM...");
@@ -235,7 +254,8 @@ ${context}
             answer: result.text,
             usage: result.usage,
             resultsCount: searchResults.length,
-            processingTime: duration
+            processingTime: duration,
+            sources: sources
         }), {
             status: 200,
             headers: {

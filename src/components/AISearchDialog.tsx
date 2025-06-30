@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Bot, User, Loader2 } from 'lucide-react';
+import { Bot, User, Loader2, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import React, { useState } from 'react';
 
 interface AISearchDialogProps {
@@ -22,12 +22,32 @@ interface Message {
     id: string;
     role: 'user' | 'assistant';
     content: string;
+    sources?: SearchSource[];
+}
+
+interface SearchSource {
+    id: string;
+    content: string;
+    similarity: number | null;
+    preview: string;
+    createdAt: string | null;
+    updatedAt: string | null;
+    displayDate: string;
+}
+
+interface SearchResponse {
+    answer: string;
+    usage: any;
+    resultsCount: number;
+    processingTime: number;
+    sources: SearchSource[];
 }
 
 export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [expandedSources, setExpandedSources] = useState<string[]>([]);
 
     const scrollAreaRef = React.useRef<HTMLDivElement>(null);
 
@@ -37,6 +57,72 @@ export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
             scrollArea.scrollTop = scrollArea.scrollHeight;
         }
     }, [messages]);
+
+    const toggleSourceExpansion = (messageId: string) => {
+        setExpandedSources(prev =>
+            prev.includes(messageId)
+                ? prev.filter(id => id !== messageId)
+                : [...prev, messageId]
+        );
+    };
+
+    const SourcesSection = ({ sources, messageId }: { sources: SearchSource[], messageId: string }) => {
+        const isExpanded = expandedSources.includes(messageId);
+
+        if (!sources || sources.length === 0) return null;
+
+        return (
+            <div className="mt-3 border-t pt-3">
+                <button
+                    onClick={() => toggleSourceExpansion(messageId)}
+                    className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
+                >
+                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    查看引用源 ({sources.length}条相关笔记)
+                </button>
+
+                {isExpanded && (
+                    <div className="space-y-2">
+                        {sources.map((source, index) => (
+                            <div key={source.id} className="border rounded-lg p-3 bg-muted/30">
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm text-muted-foreground mb-1">
+                                            📝 笔记 {index + 1}
+                                        </div>
+                                        <div className="text-sm mb-2" style={{
+                                            display: '-webkit-box',
+                                            WebkitLineClamp: 3,
+                                            WebkitBoxOrient: 'vertical',
+                                            overflow: 'hidden'
+                                        }}>
+                                            {source.preview}
+                                        </div>
+                                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                            <span>📅 {source.displayDate}</span>
+                                            {source.similarity !== null && (
+                                                <span>📊 相似度: {((1 - source.similarity) * 100).toFixed(1)}%</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <button
+                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border"
+                                        onClick={() => {
+                                            // TODO: 实现查看完整笔记功能
+                                            console.log('View full memo:', source.id);
+                                        }}
+                                    >
+                                        <Eye className="w-3 h-3" />
+                                        查看
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -62,19 +148,25 @@ export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
                 body: JSON.stringify({ query: userMessage.content }),
             });
 
-            const data = await response.json();
+            const data: SearchResponse = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Something went wrong');
+                throw new Error((data as any).error || 'Something went wrong');
             }
 
             const assistantMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',
-                content: data.answer
+                content: data.answer,
+                sources: data.sources || []
             };
 
             setMessages(prev => [...prev, assistantMessage]);
+
+            // 默认展开新消息的引用源
+            if (data.sources && data.sources.length > 0) {
+                setExpandedSources(prev => [...prev, assistantMessage.id]);
+            }
         } catch (error) {
             console.error('Search error:', error);
             const errorMessage: Message = {
@@ -114,13 +206,18 @@ export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
                         {messages.map(m => (
                             <div key={m.id} className={`flex items-start gap-3 ${m.role === 'user' ? 'justify-end' : ''}`}>
                                 {m.role === 'assistant' && <Bot className="w-6 h-6 text-primary flex-shrink-0" />}
-                                <div
-                                    className={`px-3 py-2 rounded-lg max-w-[80%] whitespace-pre-wrap ${m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
-                                        }`}
-                                >
-                                    {m.content}
+                                <div className={`max-w-[80%] ${m.role === 'user' ? 'order-2' : ''}`}>
+                                    <div
+                                        className={`px-3 py-2 rounded-lg whitespace-pre-wrap ${m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                                            }`}
+                                    >
+                                        {m.content}
+                                    </div>
+                                    {m.role === 'assistant' && m.sources && (
+                                        <SourcesSection sources={m.sources} messageId={m.id} />
+                                    )}
                                 </div>
-                                {m.role === 'user' && <User className="w-6 h-6 text-muted-foreground flex-shrink-0" />}
+                                {m.role === 'user' && <User className="w-6 h-6 text-muted-foreground flex-shrink-0 order-1" />}
                             </div>
                         ))}
                         {isLoading && (

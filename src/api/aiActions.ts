@@ -117,26 +117,26 @@ const comprehensiveInsightPrompt = `
 请严格按照以下JSON格式输出，确保JSON格式完整有效：
 
 {
-  "overview": "对用户整体思考模式的简洁总结（不超过100字）",
+  "overview": "对用户整体思考模式的简洁总结（不超过500字）",
   "insights": [
     {
       "type": "思考模式|情感规律|主题关联|回避盲点|成长轨迹",
-      "title": "简短的洞察标题（不超过20字）",
-      "content": "详细洞察内容（不超过150字）",
-      "evidence": "具体例证（不超过50字）",
-      "suggestion": "建议（不超过80字）",
+      "title": "简短的洞察标题",
+      "content": "详细洞察内容",
+      "evidence": "具体例证",
+      "suggestion": "建议",
       "confidence": "高|中|低"
     }
   ],
   "patterns": {
-    "time_patterns": "时间规律（不超过50字）",
-    "topic_frequency": "主要话题（不超过50字）",
-    "emotional_trends": "情感趋势（不超过50字）",
-    "writing_style": "写作风格（不超过50字）"
+    "time_patterns": "时间规律",
+    "topic_frequency": "主要话题",
+    "emotional_trends": "情感趋势",
+    "writing_style": "写作风格"
   },
   "questions_to_ponder": [
-    "思考问题1（不超过30字）",
-    "思考问题2（不超过30字）"
+    "思考问题1",
+    "思考问题2"
   ]
 }
 

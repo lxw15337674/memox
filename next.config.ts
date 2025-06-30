@@ -1,4 +1,5 @@
 import withSerwistInit from "@serwist/next";
+import type { NextConfig } from "next";
 
 const withSerwist = withSerwistInit({
     // Note: This is only an example. If you use Pages Router,
@@ -7,7 +8,7 @@ const withSerwist = withSerwistInit({
     swDest: "public/sw.js",
 });
 
-const nextConfig = withSerwist({
+const baseConfig: NextConfig = {
     reactStrictMode: true,
     logging: {
         fetches: {
@@ -23,7 +24,7 @@ const nextConfig = withSerwist({
     images: {
         remotePatterns: [
             {
-                protocol: 'https',
+                protocol: 'https' as const,
                 hostname: 'gallery233.pages.dev',
                 port: '',
                 pathname: '/**',
@@ -42,6 +43,11 @@ const nextConfig = withSerwist({
             }
         ];
     },
-})
+};
+
+// 只在生产环境中启用 Serwist
+const nextConfig = process.env.NODE_ENV === 'production'
+    ? withSerwist(baseConfig)
+    : baseConfig;
 
 export default nextConfig;

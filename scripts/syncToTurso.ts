@@ -72,22 +72,51 @@ async function getEmbeddings(texts: string[]): Promise<number[][]> {
 /**
  * Syncs all memos from PostgreSQL to Turso, including generating and storing embeddings.
  */
-async function syncMemosAndEmbeddings(turso: Client) {
-    console.log("\n🚀 开始同步笔记并生成向量...");
-    const memos = await prisma.memo.findMany();
+async function syncMemosAndEmbeddings(turso: Client, lastSyncTimestamp: string) {
+    console.log(`\n🚀 开始自 ${new Date(lastSyncTimestamp).toLocaleString()} 起的增量笔记同步...`);
 
-    console.log(`📋 发现 ${memos.length} 条笔记需要同步`);
+    // 1. 处理已删除的笔记
+    const deletedMemos = await prisma.memo.findMany({
+        where: {
+            deleted_at: {
+                not: null,
+                gt: new Date(lastSyncTimestamp),
+            },
+        },
+    });
 
-    if (memos.length === 0) {
-        console.log("⚠️  没有需要同步的笔记。");
+    if (deletedMemos.length > 0) {
+        console.log(`🗑️ 发现 ${deletedMemos.length} 条笔记需要从 Turso 删除。`);
+        const deleteStatements = deletedMemos.map(memo => ({
+            sql: "DELETE FROM memos WHERE id = ?;",
+            args: [memo.id],
+        }));
+        await turso.batch(deleteStatements, "write");
+        console.log(`✅ 成功从 Turso 删除 ${deletedMemos.length} 条笔记。`);
+    } else {
+        console.log("✅ 没有需要删除的笔记。");
+    }
+
+    // 2. 处理新增和已更新的笔记
+    const memosToSync = await prisma.memo.findMany({
+        where: {
+            updatedAt: { gt: new Date(lastSyncTimestamp) },
+            deleted_at: null,
+        },
+    });
+
+    console.log(`📋 发现 ${memosToSync.length} 条新增或更新的笔记需要同步`);
+
+    if (memosToSync.length === 0) {
+        console.log("✅ 没有新增或更新的笔记。");
         return;
     }
 
     let totalSynced = 0;
-    const totalBatches = Math.ceil(memos.length / BATCH_SIZE);
+    const totalBatches = Math.ceil(memosToSync.length / BATCH_SIZE);
 
-    for (let i = 0; i < memos.length; i += BATCH_SIZE) {
-        const batchMemos = memos.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < memosToSync.length; i += BATCH_SIZE) {
+        const batchMemos = memosToSync.slice(i, i + BATCH_SIZE);
         const contents = batchMemos.map(memo => memo.content.trim());
         const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
 
@@ -106,14 +135,15 @@ async function syncMemosAndEmbeddings(turso: Client) {
                 const embeddingBuffer = embedding ? Buffer.from(new Float32Array(embedding).buffer) : null;
                 return {
                     sql: `
-              INSERT INTO memos (id, content, images, created_at, updated_at, embedding)
-              VALUES (?, ?, ?, ?, ?, ?)
-              ON CONFLICT(id) DO UPDATE SET
-                content = excluded.content,
-                images = excluded.images,
-                updated_at = excluded.updated_at,
-                embedding = excluded.embedding;
-            `,
+                        INSERT INTO memos (id, content, images, created_at, updated_at, embedding, deleted_at)
+                        VALUES (?, ?, ?, ?, ?, ?, NULL)
+                        ON CONFLICT(id) DO UPDATE SET
+                            content = excluded.content,
+                            images = excluded.images,
+                            updated_at = excluded.updated_at,
+                            embedding = excluded.embedding,
+                            deleted_at = NULL;
+                    `,
                     args: [
                         memo.id,
                         memo.content,
@@ -135,55 +165,87 @@ async function syncMemosAndEmbeddings(turso: Client) {
         }
     }
 
-    console.log(`\n🎉 同步完成：总共处理了 ${totalSynced} 条笔记`);
+    console.log(`\n🎉 增量同步完成：总共处理了 ${totalSynced} 条笔记`);
 }
 
 /**
  * Syncs all tags, links, and their relationships from PostgreSQL to Turso.
  */
-async function syncRelations(turso: Client) {
-    console.log("\n🔗 开始同步关联数据 (标签、链接、关系)...");
+async function syncRelations(turso: Client, lastSyncTimestamp: string) {
+    console.log("\n🔗 开始增量同步关联数据...");
 
-    // Sync Tags
+    // 标签和链接的同步保持全量，因为它们不常变动且成本低
     const tags = await prisma.tag.findMany();
-    console.log(`🏷️  发现 ${tags.length} 个标签需要同步`);
-
     if (tags.length > 0) {
+        console.log(`🏷️  同步 ${tags.length} 个标签...`);
         const tagStatements = tags.map(tag => ({
             sql: "INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING;",
             args: [tag.id, tag.name, tag.createdAt.toISOString()],
         }));
         await turso.batch(tagStatements, "write");
-        console.log(`✅ 成功同步 ${tags.length} 个标签。`);
     }
 
-    // Sync Links
     const links = await prisma.link.findMany();
-    console.log(`🔗 发现 ${links.length} 个链接需要同步`);
-
     if (links.length > 0) {
+        console.log(`🔗 同步 ${links.length} 个链接...`);
         const linkStatements = links.map(link => ({
             sql: "INSERT INTO links (id, link, text, memo_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING;",
             args: [link.id, link.url, link.text, link.memoId, link.createdAt.toISOString()],
         }));
         await turso.batch(linkStatements, "write");
-        console.log(`✅ 成功同步 ${links.length} 个链接。`);
     }
 
-    // Sync Memo-Tag Relationships
-    const memosWithTags = await prisma.memo.findMany({ include: { tags: true } });
-    const relationStatements = memosWithTags.flatMap(memo =>
-        memo.tags.map(tag => ({
-            sql: "INSERT INTO _MemoToTag (A, B) VALUES (?, ?) ON CONFLICT(A, B) DO NOTHING;",
-            args: [memo.id, tag.id],
-        }))
-    );
+    // 只同步已变更笔记的关联关系
+    const updatedMemosWithTags = await prisma.memo.findMany({
+        where: { updatedAt: { gt: new Date(lastSyncTimestamp) } },
+        include: { tags: true }
+    });
 
-    console.log(`🔄 发现 ${relationStatements.length} 条笔记-标签关联需要同步`);
+    if (updatedMemosWithTags.length > 0) {
+        const relationStatements = updatedMemosWithTags.flatMap(memo =>
+            memo.tags.map(tag => ({
+                sql: "INSERT INTO _MemoToTag (A, B) VALUES (?, ?) ON CONFLICT(A, B) DO NOTHING;",
+                args: [memo.id, tag.id],
+            }))
+        );
 
-    if (relationStatements.length > 0) {
-        await turso.batch(relationStatements, "write");
-        console.log(`✅ 成功同步 ${relationStatements.length} 条笔记-标签关联。`);
+        if (relationStatements.length > 0) {
+            console.log(`🔄 同步 ${relationStatements.length} 条笔记-标签关联...`);
+            await turso.batch(relationStatements, "write");
+        }
+    } else {
+        console.log("✅ 没有需要更新的笔记-标签关联。");
+    }
+}
+
+/**
+ * Ensures the necessary tables and columns exist in Turso DB.
+ */
+async function setupTurso(turso: Client) {
+    console.log("\n🔧 正在检查并设置 Turso 数据库...");
+    try {
+        await turso.execute(`
+            CREATE TABLE IF NOT EXISTS sync_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+        `);
+
+        // 使用 PRAGMA 检查列是否存在
+        const memoTableInfo = await turso.execute("PRAGMA table_info(memos);");
+        // @ts-ignore
+        const hasDeletedAt = memoTableInfo.rows.some(row => row.name === "deleted_at");
+
+        if (!hasDeletedAt) {
+            console.log("📝 正在为 Turso 的 'memos' 表添加 'deleted_at' 列...");
+            await turso.execute("ALTER TABLE memos ADD COLUMN deleted_at TEXT;");
+            console.log("✅ 'deleted_at' 列已成功添加。");
+        }
+
+        console.log("✅ Turso 数据库设置检查完成。");
+    } catch (error) {
+        console.error("❌ 设置 Turso 数据库时失败：", error);
+        throw error;
     }
 }
 
@@ -192,16 +254,40 @@ async function syncRelations(turso: Client) {
  */
 async function main() {
     const startTime = Date.now();
-    console.log("🚀 开始向 Turso 全量同步数据并生成向量...");
-    console.log("⏰ 开始时间:", new Date().toISOString());
+    const currentSyncStartTime = new Date();
+    console.log(`🚀 开始增量同步... (当前时间: ${currentSyncStartTime.toLocaleString()})`);
 
     try {
-        await syncMemosAndEmbeddings(turso);
-        await syncRelations(turso);
+        await setupTurso(turso);
+
+        // 获取上次同步的时间戳
+        let lastSyncTimestamp = "1970-01-01T00:00:00.000Z"; // 默认从纪元初开始
+        const result = await turso.execute({
+            sql: "SELECT value FROM sync_metadata WHERE key = ?;",
+            args: ["last_successful_sync"],
+        });
+
+        if (result.rows.length > 0) {
+            lastSyncTimestamp = result.rows[0].value as string;
+        }
+
+        console.log(`🕒 将同步自 ${new Date(lastSyncTimestamp).toLocaleString()} 以来的变更。`);
+
+        await syncMemosAndEmbeddings(turso, lastSyncTimestamp);
+        await syncRelations(turso, lastSyncTimestamp);
+
+        // 更新同步时间戳
+        await turso.execute({
+            sql: `
+                INSERT INTO sync_metadata (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+            `,
+            args: ["last_successful_sync", currentSyncStartTime.toISOString()],
+        });
 
         const duration = (Date.now() - startTime) / 1000;
-        console.log(`\n✅ 全量同步完成！耗时: ${duration.toFixed(2)} 秒`);
-        console.log("⏰ 结束时间:", new Date().toISOString());
+        console.log(`\n✅ 增量同步成功！耗时: ${duration.toFixed(2)} 秒`);
+        console.log(`💾 新的同步时间点已记录: ${currentSyncStartTime.toLocaleString()}`);
 
     } catch (error) {
         console.error("\n❌ 同步过程中发生严重错误：");

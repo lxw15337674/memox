@@ -17,7 +17,11 @@ export const getRecordsActions = async (config: {
 }) => {
     const { page_size = 30, page = 1, filter, desc = Desc.DESC } = config;
     try {
-        const where = filter ? buildWhereClause(filter) : {};
+        const filterWhere = filter ? buildWhereClause(filter) : {};
+        const where = {
+            ...filterWhere,
+            deleted_at: null
+        };
 
         const [items, total] = await Promise.all([
             prisma.memo.findMany({
@@ -104,12 +108,15 @@ export const createNewMemo = async (newMemo: NewMemo) => {
 
 export const deleteMemo = async (id: string) => {
     try {
-        await prisma.memo.delete({
-            where: { id }
+        await prisma.memo.update({
+            where: { id },
+            data: {
+                deleted_at: new Date(),
+            }
         });
-        console.log("删除成功");
+        console.log("软删除成功");
     } catch (error) {
-        console.error("删除失败:", error);
+        console.error("软删除失败:", error);
         throw error;
     }
 };
@@ -117,7 +124,7 @@ export const deleteMemo = async (id: string) => {
 export const getMemoByIdAction = async (id: string) => {
     try {
         const memo = await prisma.memo.findUnique({
-            where: { id },
+            where: { id, deleted_at: null },
             include: {
                 link: true,
                 tags: true
@@ -325,6 +332,7 @@ export const getCountAction = async (): Promise<MemosCount> => {
     try {
         // 获取所有备忘录
         const memos = await prisma.memo.findMany({
+            where: { deleted_at: null },
             select: {
                 createdAt: true
             },
@@ -363,9 +371,14 @@ export const getCountAction = async (): Promise<MemosCount> => {
 
 export const clearAllDataAction = async () => {
     try {
-        await prisma.memo.deleteMany({});
-        await prisma.tag.deleteMany({});
         await prisma.link.deleteMany({});
+        await prisma.tag.deleteMany({});
+        await prisma.memo.updateMany({
+            where: { deleted_at: null },
+            data: {
+                deleted_at: new Date(),
+            }
+        });
         return { success: true };
     } catch (error) {
         console.error("清空数据失败:", error);
@@ -400,7 +413,8 @@ export const updateTagAction = async (oldName: string, newName: string) => {
                     some: {
                         name: oldName
                     }
-                }
+                },
+                deleted_at: null
             },
             include: {
                 tags: true
@@ -445,7 +459,9 @@ export const updateTagAction = async (oldName: string, newName: string) => {
 // 手动触发标签重新生成（同步版本，用于用户主动触发）
 export const updateMemoTagsAction = async (memoId: string) => {
     try {
-        const memo = await getMemoByIdAction(memoId);
+        const memo = await prisma.memo.findUnique({
+            where: { id: memoId, deleted_at: null }
+        });
         if (!memo) {
             console.error(`Memo with id ${memoId} not found.`);
             return null;
@@ -483,7 +499,9 @@ export const updateMemoTagsAction = async (memoId: string) => {
 
 export const regenerateMemeTags = async (memoId: string) => {
     try {
-        const memo = await getMemoByIdAction(memoId);
+        const memo = await prisma.memo.findUnique({
+            where: { id: memoId, deleted_at: null }
+        });
         if (!memo) {
             console.error(`Memo with id ${memoId} not found.`);
             return null;
@@ -539,7 +557,7 @@ export const getMemosForInsight = async (options: {
     try {
         const { maxMemos = 50, timeRange } = options;
 
-        const where: any = {};
+        const where: any = { deleted_at: null };
         if (timeRange) {
             where.createdAt = {
                 gte: timeRange.start,

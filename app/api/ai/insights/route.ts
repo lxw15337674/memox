@@ -208,7 +208,7 @@ export async function POST(req: Request) {
 
     try {
         const body = await req.json();
-        const { maxMemos = 50, timeRange } = body;
+        const { maxMemos = 30, timeRange } = body;
 
         console.log("📋 Request parameters:", { maxMemos, timeRange });
 
@@ -254,8 +254,6 @@ export async function POST(req: Request) {
         console.log("\n📍 Step 4: Processing AI response...");
         let insights;
         const responseData = aiResponse.data;
-        console.log(responseData)
-        debugger
         if (typeof responseData === 'object' && responseData !== null) {
             insights = responseData;
         } else if (typeof responseData === 'string') {

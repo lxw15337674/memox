@@ -12,6 +12,7 @@ import { Button } from '../ui/button';
 import { Content } from '@/utils/parser';
 import useShareCardStore from '@/store/shareCard';
 import { deleteMemo, regenerateMemeTags } from '../../api/dbActions';
+import { Note } from '@/api/type';
 
 interface Props {
   memoId: string;
@@ -54,7 +55,9 @@ const MemoActionMenu = ({ memoId, onEdit, parsedContent }: Props) => {
         duration: 1000
       });
       const memo = await regenerateMemeTags(memoId);
-      updateMemo(memoId);
+      if (memo) {
+        updateMemo(memoId, memo as Note);
+      }
       toast({
         title: "标签生成成功",
         description: `生成的标签为: ${memo?.tags?.map(item=>item.name).join(", ")}`,

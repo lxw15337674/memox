@@ -16,7 +16,7 @@ interface MemoStore {
   fetchInitData: () => Promise<void>;
   fetchPagedData: () => Promise<void>;
   removeMemo: (id: string) => number;
-  updateMemo: (id: string) => void;
+  updateMemo: (id: string, memo?: Note) => void;
   fetchFirstData: () => Promise<void>;
   initializeWithServerData: (serverData: { items: Note[]; total: number }) => void;
 }
@@ -51,7 +51,16 @@ const useMemoStore = create<MemoStore>()(
           return index;
         },
         // 更新数据
-        updateMemo: (id: string) => {
+        updateMemo: (id: string, memo?: Note) => {
+          if (memo) {
+            set((state) => {
+              const index = state.memos.findIndex((item) => item.id === id);
+              if (index !== -1) {
+                state.memos[index] = { ...memo, link: memo.link || undefined };
+              }
+            });
+            return;
+          }
           getMemoByIdAction(id).then((data) => {
             set((state) => {
               const index = state.memos.findIndex((item) => item.id === id);

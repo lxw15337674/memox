@@ -500,51 +500,46 @@ export const updateMemoTagsAction = async (memoId: string) => {
 export const regenerateMemeTags = async (memoId: string) => {
     try {
         const memo = await prisma.memo.findUnique({
-            where: { id: memoId, deleted_at: null }
+            where: { id: memoId, deleted_at: null },
+            include: {
+                tags: true, // include existing tags
+                link: true,
+            },
         });
         if (!memo) {
             console.error(`Memo with id ${memoId} not found.`);
             return null;
         }
 
-        // Define the background task for tag generation and update
-        const backgroundTask = async () => {
-            try {
-                console.log(`[waitUntil] Starting background tag generation for memo: ${memoId}`);
-                // Use the original generateTags which calls the AI
-                const tagNames = await generateTags(memo.content || '');
+        // if content is too short, no need to call AI
+        if (!memo.content || memo.content.trim().length < 5) {
+            console.log(`Content too short for tag generation: ${memoId}`);
+            return memo;
+        }
 
-                // Update the memo with the generated tags
-                await prisma.memo.update({
-                    where: { id: memoId },
-                    data: {
-                        tags: {
-                            set: [], // Disconnect existing tags first
-                            connectOrCreate: tagNames.map((name: string) => ({
-                                where: { name },
-                                create: { name }
-                            }))
-                        }
-                    }
-                });
-                console.log(`[waitUntil] Background tags updated for memo: ${memoId}`, tagNames);
+        const tagNames = await generateTags(memo.content);
 
-            } catch (error) {
-                console.error(`[waitUntil] Error in background tag generation/update for memo ${memoId}:`, error);
-                // Consider more robust error logging/handling for background tasks
+        const updatedMemo = await prisma.memo.update({
+            where: { id: memoId },
+            data: {
+                tags: {
+                    set: [], // Disconnect existing tags first
+                    connectOrCreate: tagNames.map((name: string) => ({
+                        where: { name },
+                        create: { name }
+                    }))
+                }
+            },
+            include: {
+                tags: true,
+                link: true
             }
-        };
+        });
+        console.log(`Tags updated for memo: ${memoId}`, tagNames);
+        return updatedMemo;
 
-        // Schedule the background task using waitUntil
-        // NOTE: This assumes waitUntil is available in the execution context.
-        waitUntil(backgroundTask());
-
-        console.log(`Tag regeneration initiated via waitUntil for memo: ${memoId}`);
-        // Return the memo immediately, the background task runs after the response
-        return memo;
     } catch (error) {
-        // This catches errors in the main flow (e.g., getMemoByIdAction)
-        console.error(`Error initiating tag regeneration for memo ${memoId}:`, error);
+        console.error(`Error regenerating tags for memo ${memoId}:`, error);
         return null;
     }
 };

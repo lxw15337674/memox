@@ -6,6 +6,7 @@ import SideBar from './SideBar';
 import NewMemoEditor from './NewMemoEditor';
 import { ShareCardDialog } from '@/components/ShareCard/ShareCardDialog';
 import { AIInsightDialog } from '@/components/AIInsightDialog';
+import { AISearchDialog } from '@/components/AISearchDialog';
 import LeftSide from '@/components/LeftSide';
 import MemoFilter from '@/components/MemoFilter';
 import MobileHeader from '../src/components/MobileHeader';
@@ -15,9 +16,14 @@ export default function ClientLayout() {
     const [insightDialogOpen, setInsightDialogOpen] = useState(false);
     const [isInsightLoading, setIsInsightLoading] = useState(false);
     const [hasInsights, setHasInsights] = useState(false);
+    const [searchDialogOpen, setSearchDialogOpen] = useState(false);
 
     const handleInsightClick = () => {
         setInsightDialogOpen(true);
+    };
+
+    const handleSearchClick = () => {
+        setSearchDialogOpen(true);
     };
 
     const handleInsightLoadingChange = (loading: boolean) => {
@@ -35,6 +41,7 @@ export default function ClientLayout() {
                 onInsightClick={handleInsightClick}
                 isInsightLoading={isInsightLoading}
                 hasInsights={hasInsights}
+                onSearchClick={handleSearchClick}
             />
             <div className="flex-1 md:ml-40 md:pl-6 px-4 overflow-hidden">
                 <main className="flex flex-col h-full md:mr-60">
@@ -55,6 +62,10 @@ export default function ClientLayout() {
                 onOpenChange={setInsightDialogOpen}
                 onLoadingChange={handleInsightLoadingChange}
                 onInsightGenerated={handleInsightGenerated}
+            />
+            <AISearchDialog
+                open={searchDialogOpen}
+                onOpenChange={setSearchDialogOpen}
             />
 
             {/* 更新的侧边栏 - 移除AI洞察按钮 */}

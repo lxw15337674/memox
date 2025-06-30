@@ -7,12 +7,14 @@ interface LeftSideProps {
   onInsightClick: () => void;
   isInsightLoading?: boolean;
   hasInsights?: boolean;
+  onSearchClick: () => void;
 }
 
 const LeftSide: React.FC<LeftSideProps> = ({
   onInsightClick,
   isInsightLoading = false,
-  hasInsights = false
+  hasInsights = false,
+  onSearchClick
 }) => {
   return (
     <div
@@ -71,6 +73,40 @@ const LeftSide: React.FC<LeftSideProps> = ({
               </span>
             </>
           )}
+        </button>
+        {/* AI 搜索按钮 */}
+        <button
+          onClick={onSearchClick}
+          className="
+            relative
+            flex flex-col items-center justify-center
+            w-full h-16 p-2
+            rounded-lg border border-border
+            bg-background hover:bg-accent
+            transition-all duration-200
+            group/search
+          "
+          title="AI 搜索"
+        >
+          <svg
+            className="w-5 h-5 mb-1 text-muted-foreground group-hover/search:text-primary transition-colors"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m21 21-4.3-4.3" />
+            <path d="M13.2 3.25a2.5 2.5 0 1 1-3.53 3.53" />
+            <path d="m2.75 13.5 3.53-3.53" />
+            <path d="M12 12a6 6 0 1 0 0-8.48V12a6 6 0 0 0 0 8.48V12Z" />
+            <path d="M18.75 10.5a2.5 2.5 0 1 1-3.53-3.53" />
+          </svg>
+          <span className="text-xs text-muted-foreground group-hover/search:text-primary transition-colors">
+            AI 搜索
+          </span>
         </button>
       </div>
 

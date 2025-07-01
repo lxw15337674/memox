@@ -9,11 +9,8 @@ const openai = new OpenAI({
 
 // 模型配置 - 不同功能使用不同模型优化性能和成本
 const MODELS = {
-    // 轻量级任务使用较小模型
     tags: 'deepseek-ai/DeepSeek-V3',
-    // 内容润色使用更强模型
     polish: 'deepseek-ai/DeepSeek-V3',
-    // 默认模型
     default: 'deepseek-ai/DeepSeek-V3'
 } as const;
 

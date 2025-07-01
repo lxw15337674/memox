@@ -14,17 +14,17 @@ const turso = createClient({
 });
 
 const TOP_K = 10; // Maximum related memos to return
+const SIMILARITY_THRESHOLD = 0.5; // Cosine distance threshold (lower is more similar)
 
 console.log("🔧 AI Related Memos Route initialized");
 
 /**
- * Gets the memo content and generates embedding for similarity search
+ * Gets or generates an embedding for a given memo.
+ * It prioritizes using a valid, existing embedding. If not available,
+ * it generates a new one and saves it to the database asynchronously.
  */
-async function getMemoEmbedding(memoId: string): Promise<{ content: string; embedding: number[] }> {
-    console.log("📝 Fetching memo content for ID:", memoId);
-
+async function getMemoEmbedding(memoId: string): Promise<number[]> {
     try {
-        // First try to get existing embedding from database
         const existingMemo = await turso.execute({
             sql: "SELECT content, embedding FROM memos WHERE id = ? AND deleted_at IS NULL",
             args: [memoId],
@@ -37,65 +37,52 @@ async function getMemoEmbedding(memoId: string): Promise<{ content: string; embe
         const content = String(existingMemo.rows[0].content);
         const existingEmbedding = existingMemo.rows[0].embedding;
 
-        // Check if content is not empty for embedding generation
+        // Try to use existing embedding if valid
+        if (existingEmbedding && (existingEmbedding as any).length > 0) {
+            try {
+                const embeddingArray = bufferToEmbedding(existingEmbedding as unknown as Buffer);
+                if (embeddingArray.length === 2560) { // Simple validation
+                    return embeddingArray;
+                }
+                console.warn(`⚠️ Existing embedding for memo ${memoId} has incorrect length, regenerating...`);
+            } catch (e) {
+                console.warn(`⚠️ Failed to parse existing embedding for memo ${memoId}, regenerating...`);
+            }
+        }
+
+        // Generate new embedding if needed
         if (!content || content.trim().length === 0) {
             throw new Error("Memo content is empty, cannot generate embedding");
         }
 
-        // If memo already has embedding, use it (check for valid length)
-        if (existingEmbedding && (existingEmbedding as any).length > 0) {
-            console.log("✅ Using existing embedding from database");
-            try {
-                const embeddingBuffer = existingEmbedding as unknown as Buffer;
-                const embeddingArray = bufferToEmbedding(embeddingBuffer);
+        console.log(`🔄 Generating new embedding for memo ${memoId}`);
+        const newEmbedding = await generateEmbedding(content);
 
-                if (embeddingArray.length === 2560) {
-                    return { content, embedding: embeddingArray };
-                } else {
-                    console.warn(`⚠️ Existing embedding has incorrect length: ${embeddingArray.length}, regenerating...`);
-                }
-            } catch (embeddingError) {
-                console.warn("⚠️ Failed to parse existing embedding, regenerating:", embeddingError);
-            }
-        }
+        // Asynchronously save the new embedding without blocking the response
+        const embeddingBuffer = embeddingToBuffer(newEmbedding);
+        turso.execute({
+            sql: "UPDATE memos SET embedding = ? WHERE id = ?",
+            args: [embeddingBuffer, memoId],
+        }).catch(saveError => {
+            console.warn(`⚠️ Failed to save new embedding for memo ${memoId} in background:`, saveError);
+        });
 
-        // Otherwise generate new embedding using service layer
-        console.log("🔄 Generating new embedding for memo");
-        const embedding = await generateEmbedding(content);
+        return newEmbedding;
 
-        // Save the embedding back to database
-        const embeddingBuffer = embeddingToBuffer(embedding);
-        try {
-            await turso.execute({
-                sql: "UPDATE memos SET embedding = ? WHERE id = ?",
-                args: [embeddingBuffer, memoId],
-            });
-            console.log("💾 Saved new embedding to database");
-        } catch (saveError) {
-            console.warn("⚠️ Failed to save embedding to database:", saveError);
-            // Continue without saving
-        }
-
-        return { content, embedding };
     } catch (error: any) {
-        if (error instanceof EmbeddingServiceError) {
-            console.error("❌ Embedding Service Error:", error.code, error.message);
-            throw error;
-        } else {
-            console.error("❌ Error getting memo embedding:", error);
-            throw error;
-        }
+        console.error(`❌ Error in getMemoEmbedding for ${memoId}:`, error);
+        // Re-throw to be caught by the main API handler
+        throw error;
     }
 }
 
 /**
- * Performs vector similarity search to find related memos
+ * Performs vector similarity search to find related memos, filtering by a similarity threshold.
  */
 async function findRelatedMemos(memoId: string, queryVectorBuffer: Buffer): Promise<any[]> {
     console.log("🔍 Searching for related memos...");
 
     try {
-        // First, try using vector index if available
         const indexCheckResult = await turso.execute({
             sql: "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE '%memos%' AND name LIKE '%embedding%';",
             args: [],
@@ -112,41 +99,37 @@ async function findRelatedMemos(memoId: string, queryVectorBuffer: Buffer): Prom
                         FROM vector_top_k(?, ?, ?) AS V
                         JOIN memos AS T ON T.id = V.id
                         WHERE T.id != ? 
-                        AND T.deleted_at IS NULL 
-                        AND T.embedding IS NOT NULL 
-                        AND LENGTH(T.embedding) > 0
+                        AND T.deleted_at IS NULL
+                        AND V.distance < ?
                         ORDER BY V.distance ASC;
                     `,
-                    args: [indexName, queryVectorBuffer, TOP_K + 1, memoId], // +1 to account for excluding self
+                    args: [indexName, queryVectorBuffer, TOP_K + 1, memoId, SIMILARITY_THRESHOLD], // +1 to exclude self
                 });
 
                 if (indexedSearchResult.rows.length > 0) {
-                    console.log(`✅ Indexed search found ${indexedSearchResult.rows.length} results`);
                     return indexedSearchResult.rows;
                 }
             } catch (indexError: any) {
-                console.log("⚠️ Vector index search failed, falling back:", indexError.message);
+                console.log("⚠️ Vector index search failed, falling back to full table scan:", indexError.message);
             }
         }
 
-        // Fallback to full table scan
         console.log("🔄 Using full table scan with vector distance calculation...");
         const fullScanResult = await turso.execute({
             sql: `
                 SELECT id, content, created_at, updated_at,
                        vector_distance_cos(embedding, ?) as similarity_score
                 FROM memos 
-                WHERE embedding IS NOT NULL 
-                AND LENGTH(embedding) > 0
+                WHERE embedding IS NOT NULL
                 AND id != ? 
                 AND deleted_at IS NULL
+                AND vector_distance_cos(embedding, ?) < ?
                 ORDER BY similarity_score ASC
                 LIMIT ?;
             `,
-            args: [queryVectorBuffer, memoId, TOP_K],
+            args: [queryVectorBuffer, memoId, queryVectorBuffer, SIMILARITY_THRESHOLD, TOP_K],
         });
 
-        console.log(`✅ Full scan found ${fullScanResult.rows.length} results`);
         return fullScanResult.rows;
 
     } catch (error: any) {
@@ -158,47 +141,27 @@ async function findRelatedMemos(memoId: string, queryVectorBuffer: Buffer): Prom
 // Main API handler for the POST request
 export async function POST(req: Request) {
     const startTime = Date.now();
-    console.log("\n🚀 Related Memos API called at:", new Date().toISOString());
+    let memoId: string | undefined;
 
     try {
-        const { memoId } = await req.json();
+        const body = await req.json();
+        memoId = body.memoId;
 
         if (!memoId || typeof memoId !== 'string') {
-            console.log("❌ Invalid memoId received:", memoId);
-            return new Response(JSON.stringify({
-                error: "memoId is required and must be a string"
-            }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return new Response(JSON.stringify({ error: "memoId is required" }), { status: 400 });
         }
 
-        console.log("📝 Processing request for memo ID:", memoId);
+        console.log(`\n🚀 Related Memos API called for memo ID: ${memoId}`);
 
-        // 1. Get memo content and generate/retrieve embedding
-        console.log("\n📍 Step 1: Getting memo embedding...");
-        const { content, embedding } = await getMemoEmbedding(memoId);
+        // 1. Get memo embedding
+        const embedding = await getMemoEmbedding(memoId);
         const queryVectorBuffer = embeddingToBuffer(embedding);
-        console.log("✅ Memo embedding ready, buffer size:", queryVectorBuffer.length, "bytes");
 
         // 2. Find related memos using vector similarity
-        console.log("\n📍 Step 2: Finding related memos...");
         const searchResults = await findRelatedMemos(memoId, queryVectorBuffer);
 
-        if (searchResults.length === 0) {
-            console.log("⚠️ No related memos found");
-            return new Response(JSON.stringify({
-                relatedMemos: [],
-                count: 0
-            }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
-
         // 3. Process and format results
-        console.log("\n📍 Step 3: Processing results...");
-        const allResults = searchResults.map(row => ({
+        const relatedMemos = searchResults.map(row => ({
             id: String(row.id),
             content: String(row.content),
             similarity: row.similarity_score ? parseFloat(String(row.similarity_score)) : null,
@@ -213,27 +176,8 @@ export async function POST(req: Request) {
             tags: [] as string[]
         }));
 
-        // Filter by similarity threshold (50% = cosine distance <= 0.5)
-        const relatedMemos = allResults.filter(memo => {
-            if (memo.similarity === null) {
-                console.log(`⚠️ Excluding memo ${memo.id} - no similarity score`);
-                return false;
-            }
-
-            const similarityPercentage = (1 - memo.similarity) * 100;
-            const meetsThreshold = similarityPercentage > 50;
-
-            if (!meetsThreshold) {
-                console.log(`📊 Excluding memo ${memo.id} - similarity ${similarityPercentage.toFixed(1)}% <= 50%`);
-            }
-
-            return meetsThreshold;
-        });
-
-        console.log(`📊 Filtered results: ${relatedMemos.length}/${allResults.length} memos with >50% similarity`);
-
         const duration = (Date.now() - startTime) / 1000;
-        console.log(`\n🎉 Related memos search completed successfully in ${duration.toFixed(2)}s`);
+        console.log(`\n🎉 Found ${relatedMemos.length} related memos in ${duration.toFixed(2)}s.`);
 
         return new Response(JSON.stringify({
             relatedMemos,
@@ -241,18 +185,17 @@ export async function POST(req: Request) {
             processingTime: duration
         }), {
             status: 200,
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
         });
 
     } catch (error: any) {
         const duration = (Date.now() - startTime) / 1000;
+        const memoInfo = memoId ? `for memo ${memoId}` : "";
 
         if (error instanceof EmbeddingServiceError) {
-            console.error(`\n❌ Embedding Service Error after ${duration.toFixed(2)}s:`, error.code, error.message, error.details);
+            console.error(`\n❌ Embedding Service Error after ${duration.toFixed(2)}s ${memoInfo}:`, error.code, error.message);
         } else {
-            console.error(`\n❌ Related memos search failed after ${duration.toFixed(2)}s:`, error);
+            console.error(`\n❌ Related memos search failed after ${duration.toFixed(2)}s ${memoInfo}:`, error.message);
         }
 
         return new Response(JSON.stringify({
@@ -260,9 +203,7 @@ export async function POST(req: Request) {
             processingTime: duration
         }), {
             status: 500,
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
         });
     }
 } 

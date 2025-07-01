@@ -18,11 +18,12 @@ import { useState } from 'react';
 
 interface Props {
   memoId: string;
+  originalMemo: Note;
   onEdit: () => void;
   parsedContent: Content[][]
 }
 
-const MemoActionMenu = ({ memoId, onEdit, parsedContent }: Props) => {
+const MemoActionMenu = ({ memoId, originalMemo, onEdit, parsedContent }: Props) => {
   const { toast } = useToast();
   const { removeMemo,  updateMemo } = useMemoStore();
   const { setOpen, setText } = useShareCardStore();
@@ -140,6 +141,7 @@ const MemoActionMenu = ({ memoId, onEdit, parsedContent }: Props) => {
         open={relatedMemosOpen}
         onOpenChange={setRelatedMemosOpen}
         memoId={memoId}
+        originalMemo={originalMemo}
         onMemoClick={handleRelatedMemoClick}
       />
     </>

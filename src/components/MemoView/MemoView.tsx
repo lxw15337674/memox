@@ -51,6 +51,18 @@ const MemoView = ({
 
   const { updateMemo } = useMemoStore();
 
+  // Create the complete memo object to pass to MemoActionMenu
+  const currentMemo: Note = useMemo(() => ({
+    id,
+    content,
+    images,
+    link,
+    createdAt,
+    updatedAt,
+    deleted_at: null, // This memo is visible, so it's not deleted
+    tags
+  }), [id, content, images, link, createdAt, updatedAt, tags]);
+
   const { runAsync: updateRecord } = useRequest(updateMemoAction, {
     manual: true,
     onSuccess: (id) => {
@@ -94,6 +106,7 @@ const MemoView = ({
         </div>
         <MemoActionMenu
           memoId={id}
+          originalMemo={currentMemo}
           onEdit={handleEdit}
           parsedContent={content.split('\n').map(text => parseContent(text))}
         />

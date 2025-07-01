@@ -16,7 +16,7 @@ const turso = createClient({
     url: process.env.TURSO_DATABASE_URL!,
     authToken: process.env.TURSO_AUTH_TOKEN!,
 });
-const TOP_K = 10; // Retrieve top 10 most similar memos
+const TOP_K = 20; // Retrieve top 10 most similar memos
 
 console.log("🔧 AI Search Route initialized with config:");
 console.log("- TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "✅ Set" : "❌ Missing");

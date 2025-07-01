@@ -14,6 +14,7 @@ import { Card } from './ui/card';
 import Icon from './Icon';
 import Tag from './Tag';
 import { Loader2 } from 'lucide-react';
+import { Note } from '../api/type';
 
 interface RelatedMemo {
     id: string;
@@ -35,6 +36,7 @@ interface RelatedMemosDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     memoId: string;
+    originalMemo?: Note;
     onMemoClick?: (memoId: string) => void;
 }
 
@@ -42,6 +44,7 @@ export function RelatedMemosDialog({
     open,
     onOpenChange,
     memoId,
+    originalMemo,
     onMemoClick
 }: RelatedMemosDialogProps) {
     const [isLoading, setIsLoading] = useState(false);
@@ -120,7 +123,7 @@ export function RelatedMemosDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
+            <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Icon.Link className="w-5 h-5" />
@@ -138,6 +141,57 @@ export function RelatedMemosDialog({
 
                 <ScrollArea className="flex-grow">
                     <div className="space-y-4 p-1">
+                        {/* Original Memo Section */}
+                        {originalMemo && !isLoading && (
+                            <div className="mb-6">
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                                    <Icon.FileText className="w-4 h-4" />
+                                    原笔记
+                                </div>
+                                <Card className="p-4 bg-primary/5 border-primary/20 h-fit">
+                                    <div className="space-y-3">
+                                        {/* Header with date */}
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <span className="bg-primary text-primary-foreground px-2 py-1 rounded-full font-medium">
+                                                    原笔记
+                                                </span>
+                                            </div>
+                                            <div className="text-xs text-muted-foreground">
+                                                📅 {originalMemo.createdAt ? new Date(originalMemo.createdAt).toLocaleDateString('zh-CN', {
+                                                    year: 'numeric',
+                                                    month: 'short',
+                                                    day: 'numeric'
+                                                }) : '未知日期'}
+                                            </div>
+                                        </div>
+
+                                        {/* Complete Content */}
+                                        <div className="space-y-2">
+                                            <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                                                {originalMemo.content || '内容为空'}
+                                            </p>
+
+                                            {/* Tags */}
+                                            {originalMemo.tags && originalMemo.tags.length > 0 && (
+                                                <div className="flex flex-wrap gap-1">
+                                                    {originalMemo.tags.map((tag) => (
+                                                        <Tag
+                                                            key={tag.id}
+                                                            text={tag.name}
+                                                            className="text-xs"
+                                                        >
+                                                            {tag.name}
+                                                        </Tag>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </Card>
+                            </div>
+                        )}
+
                         {/* Loading State */}
                         {isLoading && (
                             <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -181,66 +235,61 @@ export function RelatedMemosDialog({
                                     找到 {relatedMemos.length} 条相关笔记
                                 </div>
 
-                                {relatedMemos.map((memo, index) => (
-                                    <Card
-                                        key={memo.id}
-                                        className="p-4 hover:bg-muted/50 transition-colors cursor-pointer group"
-                                        onClick={() => handleMemoClick(memo.id)}
-                                    >
-                                        <div className="space-y-3">
-                                            {/* Header with similarity and date */}
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                    <span className="bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">
-                                                        #{index + 1}
-                                                    </span>
-                                                    {memo.similarity !== null && (
-                                                        <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
-                                                            📊 相似度: {((1 - memo.similarity) * 100).toFixed(1)}%
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {relatedMemos.map((memo, index) => (
+                                        <Card
+                                            key={memo.id}
+                                            className="p-4 hover:bg-muted/50 transition-colors cursor-pointer group h-fit"
+                                            onClick={() => handleMemoClick(memo.id)}
+                                        >
+                                            <div className="space-y-3">
+                                                {/* Header with similarity and date */}
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                        <span className="bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">
+                                                            #{index + 1}
                                                         </span>
+                                                        {memo.similarity !== null && (
+                                                            <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
+                                                                📊 相似度: {((1 - memo.similarity) * 100).toFixed(1)}%
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        📅 {memo.displayDate}
+                                                    </div>
+                                                </div>
+
+                                                {/* Complete Content */}
+                                                <div className="space-y-2">
+
+                                                    <p className="text-sm leading-relaxed group-hover:text-foreground transition-colors whitespace-pre-wrap">
+                                                        {memo.content || '内容为空'}
+                                                    </p>
+
+                                                    {/* Tags */}
+                                                    {memo.tags && memo.tags.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {memo.tags.map((tagName) => (
+                                                                <Tag
+                                                                    key={tagName}
+                                                                    text={tagName}
+                                                                    className="text-xs"
+                                                                >
+                                                                    {tagName}
+                                                                </Tag>
+                                                            ))}
+                                                        </div>
                                                     )}
                                                 </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    📅 {memo.displayDate}
-                                                </div>
                                             </div>
-
-                                            {/* Content Preview */}
-                                            <div className="space-y-2">
-                                                <p className="text-sm leading-relaxed group-hover:text-foreground transition-colors">
-                                                    {memo.preview}
-                                                </p>
-
-                                                {/* Tags */}
-                                                {memo.tags && memo.tags.length > 0 && (
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {memo.tags.map((tagName) => (
-                                                            <Tag
-                                                                key={tagName}
-                                                                text={tagName}
-                                                                className="text-xs"
-                                                            >
-                                                                {tagName}
-                                                            </Tag>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </Card>
-                                ))}
+                                        </Card>
+                                    ))}
+                                </div>
                             </>
                         )}
                     </div>
                 </ScrollArea>
-
-                {/* Footer with tips */}
-                <div className="border-t pt-3">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Icon.Info className="w-3 h-3" />
-                        <span>相关度基于内容的语义相似性计算，数值越高表示内容越相关</span>
-                    </div>
-                </div>
             </DialogContent>
         </Dialog>
     );

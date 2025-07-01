@@ -6,7 +6,6 @@ import {
     EmbeddingServiceError
 } from "../../../../src/services/embeddingService";
 
-export const runtime = "edge";
 
 // --- Clients Setup ---
 const turso = createClient({

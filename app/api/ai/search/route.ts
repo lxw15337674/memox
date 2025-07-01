@@ -9,7 +9,6 @@ import {
     AIServiceError
 } from "../../../../src/services/aiService";
 
-export const runtime = "edge";
 
 // --- Clients Setup ---
 const turso = createClient({

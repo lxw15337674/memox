@@ -35,12 +35,14 @@ export default function Main({ initialData }: MainProps) {
             }
         });
 
-        // 如果有 SSR 数据，使用它来初始化 store
+        // 如果有 SSR 数据，优先使用它来初始化 store
         if (initialData) {
+            console.log('🔄 Using SSR data to initialize stores');
             initializeWithServerData(initialData.memos);
             initializeCountStore(initialData.tags, initialData.counts);
         } else {
-        // 降级到客户端数据获取
+            // 降级到客户端数据获取
+            console.log('📡 Falling back to client-side data fetching');
             fetchInitData();
             fetchTags();
             getCount();

@@ -3,7 +3,6 @@
 import axios from 'axios';
 import { getTagsAction } from './dbActions';
 import { API_URL } from './config';
-import { Note } from './type';
 
 const AI_API_URL = `${API_URL}/api/ai/chat`
 
@@ -19,8 +18,8 @@ const tagPrompt = (tags: string[]) => `
 4. 仅当现有标签不足以表达内容核心主题时，创建简洁明确的新标签
 5. 避免生成过于宽泛、模糊或无关的标签
 6. 确保标签之间相互独立，不重复表达相同概念
-7. 最多生成三个标签
-7. 请严格按照格式返回： ["标签1", "标签2"]
+7. 最多生成两个标签
+8. 请严格按照格式返回： ["标签1", "标签2"]
 `;
 
 const polishPrompt = () => `

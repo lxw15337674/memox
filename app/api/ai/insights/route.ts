@@ -1,6 +1,5 @@
 import { createClient } from "@libsql/client";
-import axios from "axios";
-import { API_URL } from "../../../../src/api/config";
+import { callAI, AIServiceError } from "../../../../src/services/aiService";
 
 export const runtime = "edge";
 
@@ -9,8 +8,6 @@ const turso = createClient({
     url: process.env.TURSO_DATABASE_URL!,
     authToken: process.env.TURSO_AUTH_TOKEN!,
 });
-
-const AI_API_URL = `${API_URL}/api/ai/chat`;
 
 console.log("🔧 AI Insights Route initialized");
 
@@ -243,9 +240,14 @@ export async function POST(req: Request) {
             .replace('{totalCount}', totalCount.toString())
             .replace('{allMemoContents}', allMemoContents);
 
-        const aiResponse = await axios.post(AI_API_URL, {
-            prompt: '请分析这些笔记内容',
-            rolePrompt: prompt
+        const aiResponse = await callAI({
+            messages: [
+                { role: 'system', content: '请分析这些笔记内容' },
+                { role: 'user', content: prompt }
+            ],
+            model: 'deepseek-ai/DeepSeek-V3',
+            temperature: 0.6,
+            maxTokens: 2000
         });
 
         console.log("✅ AI response received");
@@ -253,10 +255,8 @@ export async function POST(req: Request) {
         // 4. Process AI response
         console.log("\n📍 Step 4: Processing AI response...");
         let insights;
-        const responseData = aiResponse.data;
-        if (typeof responseData === 'object' && responseData !== null) {
-            insights = responseData;
-        } else if (typeof responseData === 'string') {
+        const responseData = aiResponse.content;
+        if (typeof responseData === 'string') {
             try {
                 insights = JSON.parse(responseData);
             } catch (parseError) {
@@ -304,7 +304,12 @@ export async function POST(req: Request) {
 
     } catch (error: any) {
         const duration = (Date.now() - startTime) / 1000;
-        console.error(`\n❌ Insights generation failed after ${duration.toFixed(2)}s:`, error);
+
+        if (error instanceof AIServiceError) {
+            console.error(`\n❌ AI Service Error after ${duration.toFixed(2)}s:`, error.code, error.message, error.details);
+        } else {
+            console.error(`\n❌ Insights generation failed after ${duration.toFixed(2)}s:`, error);
+        }
 
         return new Response(JSON.stringify({
             error: error.message || "生成洞察时发生未知错误",

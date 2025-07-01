@@ -1,6 +1,13 @@
 import { createClient } from "@libsql/client";
-import axios from "axios";
-import { API_URL } from "../../../../src/api/config";
+import {
+    generateEmbedding,
+    embeddingToBuffer,
+    EmbeddingServiceError
+} from "../../../../src/services/embeddingService";
+import {
+    callAI,
+    AIServiceError
+} from "../../../../src/services/aiService";
 
 export const runtime = "edge";
 
@@ -9,49 +16,30 @@ const turso = createClient({
     url: process.env.TURSO_DATABASE_URL!,
     authToken: process.env.TURSO_AUTH_TOKEN!,
 });
-
-const AI_API_URL = `${API_URL}/api/ai/chat`;
-
-// --- API Config ---
-const siliconflowApiKey = process.env.SILICONFLOW_API_KEY!;
-const SILICONFLOW_API_URL = "https://api.siliconflow.cn/v1/embeddings";
-const EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-4B";
 const TOP_K = 10; // Retrieve top 10 most similar memos
 
 console.log("🔧 AI Search Route initialized with config:");
 console.log("- TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "✅ Set" : "❌ Missing");
-console.log("- AI_API_URL:", AI_API_URL);
 console.log("- SILICONFLOW_API_KEY:", process.env.SILICONFLOW_API_KEY ? "✅ Set" : "❌ Missing");
 
 /**
- * Generates an embedding for a given text using the SiliconFlow API.
- * @param text - The text to embed.
- * @returns A promise that resolves to the embedding vector.
+ * Wrapper function for generating embeddings using the embedding service
  */
 async function getEmbedding(text: string): Promise<number[]> {
     console.log("🔄 Generating embedding for query:", text.substring(0, 50) + "...");
 
     try {
-        const response = await axios.post(
-            SILICONFLOW_API_URL,
-            { model: EMBEDDING_MODEL, input: [text] },
-            {
-                headers: {
-                    Authorization: `Bearer ${siliconflowApiKey}`,
-                    "Content-Type": "application/json"
-                },
-                timeout: 10000 // 10 second timeout
-            }
-        );
-
-        console.log("✅ Embedding generated successfully, dimensions:", response.data.data[0].embedding.length);
-        return response.data.data[0].embedding;
+        const embedding = await generateEmbedding(text);
+        console.log("✅ Embedding generated successfully, dimensions:", embedding.length);
+        return embedding;
     } catch (error: any) {
-        console.error("❌ Error generating embedding:");
-        console.error("- Message:", error.message);
-        console.error("- Response data:", error.response?.data);
-        console.error("- Status:", error.response?.status);
-        throw new Error(`Failed to generate embedding: ${error.message}`);
+        if (error instanceof EmbeddingServiceError) {
+            console.error("❌ Embedding Service Error:", error.code, error.message);
+            throw new Error(`Failed to generate embedding: ${error.message}`);
+        } else {
+            console.error("❌ Error generating embedding:", error.message);
+            throw new Error(`Failed to generate embedding: ${error.message}`);
+        }
     }
 }
 
@@ -298,12 +286,16 @@ export async function POST(req: Request) {
 
         // 4. Generate the answer using AI API
         console.log("\n📍 Step 4: Generating answer with AI API...");
-        const response = await axios.post(AI_API_URL, {
-            prompt: trimmedQuery,
-            rolePrompt
+        const response = await callAI({
+            messages: [
+                { role: 'system', content: rolePrompt },
+                { role: 'user', content: trimmedQuery }
+            ],
+            model: 'deepseek-ai/DeepSeek-V3',
+            temperature: 0.5,
+            maxTokens: 1500
         });
-
-        const answer = response.data;
+        const answer = response.content;
         console.log("✅ Answer generated successfully");
 
         const duration = (Date.now() - startTime) / 1000;
@@ -324,8 +316,15 @@ export async function POST(req: Request) {
 
     } catch (error: any) {
         const duration = (Date.now() - startTime) / 1000;
-        console.error(`\n❌ AI Search failed after ${duration.toFixed(2)}s:`, error);
-        console.error("Error stack:", error.stack);
+
+        if (error instanceof AIServiceError) {
+            console.error(`\n❌ AI Service Error after ${duration.toFixed(2)}s:`, error.code, error.message, error.details);
+        } else if (error instanceof EmbeddingServiceError) {
+            console.error(`\n❌ Embedding Service Error after ${duration.toFixed(2)}s:`, error.code, error.message, error.details);
+        } else {
+            console.error(`\n❌ AI Search failed after ${duration.toFixed(2)}s:`, error);
+            console.error("Error stack:", error.stack);
+        }
 
         return new Response(JSON.stringify({
             error: error.message || "An unknown error occurred",

@@ -226,12 +226,6 @@ export function RelatedMemosDialog({
                                                     </div>
                                                 )}
                                             </div>
-
-                                            {/* Click hint */}
-                                            <div className="flex items-center gap-1 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Icon.MousePointer className="w-3 h-3" />
-                                                点击查看完整笔记
-                                            </div>
                                         </div>
                                     </Card>
                                 ))}

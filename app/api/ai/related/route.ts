@@ -1,6 +1,10 @@
 import { createClient } from "@libsql/client";
-import axios from "axios";
-import { API_URL } from "../../../../src/api/config";
+import {
+    generateEmbedding,
+    embeddingToBuffer,
+    bufferToEmbedding,
+    EmbeddingServiceError
+} from "../../../../src/services/embeddingService";
 
 export const runtime = "edge";
 
@@ -10,40 +14,9 @@ const turso = createClient({
     authToken: process.env.TURSO_AUTH_TOKEN!,
 });
 
-// --- API Config ---
-const siliconflowApiKey = process.env.SILICONFLOW_API_KEY!;
-const SILICONFLOW_API_URL = "https://api.siliconflow.cn/v1/embeddings";
-const EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-4B";
 const TOP_K = 10; // Maximum related memos to return
 
 console.log("🔧 AI Related Memos Route initialized");
-
-/**
- * Generates an embedding for a given text using the SiliconFlow API.
- */
-async function getEmbedding(text: string): Promise<number[]> {
-    console.log("🔄 Generating embedding for memo content:", text.substring(0, 50) + "...");
-
-    try {
-        const response = await axios.post(
-            SILICONFLOW_API_URL,
-            { model: EMBEDDING_MODEL, input: [text] },
-            {
-                headers: {
-                    Authorization: `Bearer ${siliconflowApiKey}`,
-                    "Content-Type": "application/json"
-                },
-                timeout: 10000
-            }
-        );
-
-        console.log("✅ Embedding generated successfully, dimensions:", response.data.data[0].embedding.length);
-        return response.data.data[0].embedding;
-    } catch (error: any) {
-        console.error("❌ Error generating embedding:", error.message);
-        throw new Error(`Failed to generate embedding: ${error.message}`);
-    }
-}
 
 /**
  * Gets the memo content and generates embedding for similarity search
@@ -75,10 +48,9 @@ async function getMemoEmbedding(memoId: string): Promise<{ content: string; embe
             console.log("✅ Using existing embedding from database");
             try {
                 const embeddingBuffer = existingEmbedding as unknown as Buffer;
-                const embeddingArray = Array.from(new Float32Array(embeddingBuffer.buffer));
+                const embeddingArray = bufferToEmbedding(embeddingBuffer);
 
-                // Validate embedding length (should be 1024 for Qwen/Qwen3-Embedding-4B)
-                if (embeddingArray.length === 1024) {
+                if (embeddingArray.length === 2560) {
                     return { content, embedding: embeddingArray };
                 } else {
                     console.warn(`⚠️ Existing embedding has incorrect length: ${embeddingArray.length}, regenerating...`);
@@ -88,12 +60,12 @@ async function getMemoEmbedding(memoId: string): Promise<{ content: string; embe
             }
         }
 
-        // Otherwise generate new embedding
+        // Otherwise generate new embedding using service layer
         console.log("🔄 Generating new embedding for memo");
-        const embedding = await getEmbedding(content);
+        const embedding = await generateEmbedding(content);
 
-        // Optionally save the embedding back to database
-        const embeddingBuffer = Buffer.from(new Float32Array(embedding).buffer);
+        // Save the embedding back to database
+        const embeddingBuffer = embeddingToBuffer(embedding);
         try {
             await turso.execute({
                 sql: "UPDATE memos SET embedding = ? WHERE id = ?",
@@ -107,8 +79,13 @@ async function getMemoEmbedding(memoId: string): Promise<{ content: string; embe
 
         return { content, embedding };
     } catch (error: any) {
-        console.error("❌ Error getting memo embedding:", error);
-        throw error;
+        if (error instanceof EmbeddingServiceError) {
+            console.error("❌ Embedding Service Error:", error.code, error.message);
+            throw error;
+        } else {
+            console.error("❌ Error getting memo embedding:", error);
+            throw error;
+        }
     }
 }
 
@@ -199,31 +176,29 @@ export async function POST(req: Request) {
 
         console.log("📝 Processing request for memo ID:", memoId);
 
-        // 1. Get memo content and embedding
+        // 1. Get memo content and generate/retrieve embedding
         console.log("\n📍 Step 1: Getting memo embedding...");
-        const { content: memoContent, embedding } = await getMemoEmbedding(memoId);
-        const queryVectorBuffer = Buffer.from(new Float32Array(embedding).buffer);
+        const { content, embedding } = await getMemoEmbedding(memoId);
+        const queryVectorBuffer = embeddingToBuffer(embedding);
         console.log("✅ Memo embedding ready, buffer size:", queryVectorBuffer.length, "bytes");
 
-        // 2. Find related memos using vector search
-        console.log("\n📍 Step 2: Searching for related memos...");
+        // 2. Find related memos using vector similarity
+        console.log("\n📍 Step 2: Finding related memos...");
         const searchResults = await findRelatedMemos(memoId, queryVectorBuffer);
 
         if (searchResults.length === 0) {
             console.log("⚠️ No related memos found");
             return new Response(JSON.stringify({
                 relatedMemos: [],
-                totalCount: 0,
-                processingTime: (Date.now() - startTime) / 1000
+                count: 0
             }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }
             });
         }
 
-        // 3. Process and filter results
-        console.log("\n📍 Step 3: Processing search results...");
-
+        // 3. Process and format results
+        console.log("\n📍 Step 3: Processing results...");
         const allResults = searchResults.map(row => ({
             id: String(row.id),
             content: String(row.content),
@@ -258,59 +233,12 @@ export async function POST(req: Request) {
 
         console.log(`📊 Filtered results: ${relatedMemos.length}/${allResults.length} memos with >50% similarity`);
 
-        // 4. Get tags for related memos
-        if (relatedMemos.length > 0) {
-            console.log("\n📍 Step 4: Fetching tags for related memos...");
-            const memoIds = relatedMemos.map(memo => memo.id);
-            const tagsQuery = `
-                SELECT m.id as memo_id, t.name as tag_name
-                FROM memos m
-                LEFT JOIN _MemoToTag mt ON m.id = mt.A
-                LEFT JOIN tags t ON mt.B = t.id
-                WHERE m.id IN (${memoIds.map(() => '?').join(',')})
-            `;
-
-            try {
-                const tagsResult = await turso.execute({
-                    sql: tagsQuery,
-                    args: memoIds,
-                });
-
-                // Group tags by memo ID
-                const tagsByMemo: Record<string, string[]> = {};
-                tagsResult.rows.forEach(row => {
-                    const memoId = String(row.memo_id);
-                    const tagName = row.tag_name ? String(row.tag_name) : null;
-
-                    if (!tagsByMemo[memoId]) {
-                        tagsByMemo[memoId] = [];
-                    }
-
-                    if (tagName) {
-                        tagsByMemo[memoId].push(tagName);
-                    }
-                });
-
-                // Add tags to related memos
-                relatedMemos.forEach(memo => {
-                    memo.tags = tagsByMemo[memo.id] || [];
-                });
-
-                console.log("✅ Tags added to related memos");
-            } catch (tagsError) {
-                console.warn("⚠️ Failed to fetch tags, continuing without them:", tagsError);
-                relatedMemos.forEach(memo => {
-                    memo.tags = [];
-                });
-            }
-        }
-
         const duration = (Date.now() - startTime) / 1000;
         console.log(`\n🎉 Related memos search completed successfully in ${duration.toFixed(2)}s`);
 
         return new Response(JSON.stringify({
             relatedMemos,
-            totalCount: relatedMemos.length,
+            count: relatedMemos.length,
             processingTime: duration
         }), {
             status: 200,
@@ -321,10 +249,15 @@ export async function POST(req: Request) {
 
     } catch (error: any) {
         const duration = (Date.now() - startTime) / 1000;
-        console.error(`\n❌ Related memos search failed after ${duration.toFixed(2)}s:`, error);
+
+        if (error instanceof EmbeddingServiceError) {
+            console.error(`\n❌ Embedding Service Error after ${duration.toFixed(2)}s:`, error.code, error.message, error.details);
+        } else {
+            console.error(`\n❌ Related memos search failed after ${duration.toFixed(2)}s:`, error);
+        }
 
         return new Response(JSON.stringify({
-            error: error.message || "An unknown error occurred",
+            error: error.message || "查找相关笔记时发生未知错误",
             processingTime: duration
         }), {
             status: 500,

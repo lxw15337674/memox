@@ -48,7 +48,12 @@ export default function ClientLayout({ initialData }: ClientLayoutProps) {
 
     return (
         <div className="flex flex-col md:flex-row max-w-[100vw] min-h-screen">
-            <MobileHeader />
+            <MobileHeader
+                onInsightClick={handleInsightClick}
+                isInsightLoading={isInsightLoading}
+                hasInsights={hasInsights}
+                onSearchClick={handleSearchClick}
+            />
             <LeftSide
                 onInsightClick={handleInsightClick}
                 isInsightLoading={isInsightLoading}

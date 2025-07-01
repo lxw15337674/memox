@@ -23,13 +23,47 @@ export const getRecordsActions = async (config: {
             deleted_at: null
         };
 
+        if (desc === Desc.RANDOM) {
+            // 方案二：两步查询法
+            // 1. 只查询符合条件的 ID 列表
+            const memoIds = await prisma.memo.findMany({
+                where,
+                select: { id: true },
+            });
+            const total = memoIds.length;
+
+            // 2. 在应用层对 ID 进行洗牌
+            const shuffledIds = memoIds.map(m => m.id).sort(() => Math.random() - 0.5);
+
+            // 3. 根据分页获取当前页的 ID
+            const pageIds = shuffledIds.slice((page - 1) * page_size, page * page_size);
+
+            if (pageIds.length === 0) {
+                return { items: [], total };
+            }
+
+            // 4. 获取完整数据，并保持随机顺序
+            const items = await prisma.memo.findMany({
+                where: { id: { in: pageIds } },
+                include: { link: true, tags: true },
+            });
+
+            const sortedItems = items.sort((a, b) => pageIds.indexOf(a.id) - pageIds.indexOf(b.id));
+
+            return {
+                items: sortedItems as Note[],
+                total,
+            };
+        }
+
+
         const [items, total] = await Promise.all([
             prisma.memo.findMany({
                 take: page_size,
                 skip: (page - 1) * page_size,
                 where,
                 orderBy: {
-                    createdAt: desc ? 'desc' : 'asc'
+                    createdAt: desc === Desc.DESC ? 'desc' : 'asc'
                 },
                 include: {
                     link: true,
@@ -38,9 +72,8 @@ export const getRecordsActions = async (config: {
             }),
             prisma.memo.count({ where })
         ]);
-        const sortedItems = desc === Desc.RANDOM ? items.sort(() => Math.random() - 0.5) : items;
         return {
-            items: sortedItems as Note[],
+            items: items as Note[],
             total,
         }
     } catch (error) {

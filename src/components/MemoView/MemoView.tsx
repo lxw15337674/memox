@@ -113,13 +113,15 @@ const MemoView = ({
       </div>
       {images.length > 0 && (
         <div className="grid grid-cols-2 gap-1 mt-2">
-          {images.map((image) => (
-              <ImageViewer
-              key={image}
-              src={image}
-              alt={image}
-            />
-          ))}
+          {Array.isArray(images)
+            ? images.map((image) => (
+                <ImageViewer key={image} src={image} alt={image} />
+              ))
+            : images && typeof images === 'string' && images.length > 0
+              ? JSON.parse(images).map((image: string) => (
+                  <ImageViewer key={image} src={image} alt={image} />
+                ))
+              : null}
         </div>
       )}
 

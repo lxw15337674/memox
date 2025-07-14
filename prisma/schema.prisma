@@ -9,21 +9,21 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./d1.sqlite"
 }
 
 model Memo {
   id            String      @id @default(cuid())
   content       String
   tags          Tag[]
-  images        String[]
+  images        String
   link          Link?
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
   deleted_at    DateTime?   @map("deleted_at")
 
-  @@map("memos")
+  @@map("public_memos")
 }
 
 model Link {
@@ -31,9 +31,9 @@ model Link {
   url           String      @map("link")
   text          String?
   memoId        String      @unique @map("memo_id")
-  memo          Memo        @relation(fields: [memoId], references: [id], onDelete: Cascade)
+  memo          Memo        @relation(fields: [memoId], references: [id])
   createdAt     DateTime    @default(now()) @map("created_at")
-  @@map("links")
+  @@map("public_links")
 }
 
 model Tag {
@@ -42,5 +42,5 @@ model Tag {
   memos         Memo[]     
   createdAt     DateTime    @default(now()) @map("created_at")
 
-  @@map("tags")
+  @@map("public_tags")
 }

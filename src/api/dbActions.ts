@@ -112,7 +112,7 @@ export const createNewMemo = async (newMemo: NewMemo) => {
             return await tx.memo.create({
                 data: {
                     content,
-                    images: images || [],
+                    images: JSON.stringify(images || []),
                     createdAt: created_time ? new Date(created_time) : new Date(),
                     updatedAt: last_edited_time ? new Date(last_edited_time) : new Date(),
                     tags: {
@@ -193,7 +193,7 @@ export const updateMemoQuickAction = async (id: string, newMemo: NewMemo) => {
                 where: { id },
                 data: {
                     content,
-                    images: images || [],
+                    images: JSON.stringify(images || []),
                     updatedAt: new Date(),
                     link: {
                         ...((!existingMemo?.link && !link) ? {} :
@@ -241,7 +241,7 @@ export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
                 where: { id },
                 data: {
                     content,
-                    images: images || [],
+                    images: JSON.stringify(images || []),
                     updatedAt: new Date(),
                     link: {
                         // 优化link处理逻辑

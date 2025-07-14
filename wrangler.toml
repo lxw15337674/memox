@@ -1,0 +1,8 @@
+name = "memox"
+main = "src/index.ts"
+compatibility_date = "2025-07-14"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "test-memos"
+database_id = "83dc2e78-bb77-4aac-be79-4013e5e56137"

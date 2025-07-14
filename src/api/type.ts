@@ -38,7 +38,7 @@ type Note = Memo & {
 
 export interface NewMemo {
   content: string;
-  images?: string[];
+  images?: string;
   link?: LinkType
   created_time?: string;
   last_edited_time?: string;

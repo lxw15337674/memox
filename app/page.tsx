@@ -2,6 +2,8 @@ import ClientLayout from './ClientLayout';
 import { getMemosDataActions, getTagsWithCountAction, getCountAction } from '@/api/dbActions';
 import { Desc } from '@/store/filter';
 
+export const dynamic = 'force-dynamic';
+
 export default async function Home() {
   // 并行获取首页所需的初始数据
   const [initialMemos, tags, counts] = await Promise.all([

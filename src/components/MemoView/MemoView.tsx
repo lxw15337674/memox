@@ -36,7 +36,7 @@ MemoContent.displayName = 'MemoContent';
 const MemoView = ({
   tags,
   content,
-  images = [],
+  images ,
   link,
   createdAt,
   updatedAt,
@@ -62,7 +62,14 @@ const MemoView = ({
     deleted_at: null, // This memo is visible, so it's not deleted
     tags
   }), [id, content, images, link, createdAt, updatedAt, tags]);
-
+  const parsedImages = useMemo(():string[] => {
+    try {
+      return JSON.parse(images)??[]
+    } catch (error) {
+      console.error('Failed to parse images JSON:', error);
+      return [];
+    }
+  }, [images]);
   const { runAsync: updateRecord } = useRequest(updateMemoAction, {
     manual: true,
     onSuccess: (id) => {
@@ -92,7 +99,7 @@ const MemoView = ({
   if (isEdited) {
     return <Editor
       defaultValue={content}
-      defaultImages={images}
+      defaultImages={parsedImages}
       defaultLink={link}
       onSubmit={handleSubmit}
       onCancel={handleCancel}
@@ -118,7 +125,7 @@ const MemoView = ({
                 <ImageViewer key={image} src={image} alt={image} />
               ))
             : images && typeof images === 'string' && images.length > 0
-              ? JSON.parse(images).map((image: string) => (
+              ? parsedImages.map((image: string) => (
                   <ImageViewer key={image} src={image} alt={image} />
                 ))
               : null}

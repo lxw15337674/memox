@@ -115,7 +115,7 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink, 
     await onSubmit?.(
       {
         content,
-        images: files?.map(item => item.source),
+        images: JSON.stringify(files?.map(item => item.source) ?? []),
         link
       }).finally(() => {
         setLoading(false);

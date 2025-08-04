@@ -2,11 +2,12 @@ import { PrismaClient } from "@prisma/client";
 import { createClient, Client, Transaction } from "@libsql/client";
 import axios from "axios";
 import dotenv from "dotenv";
+import { withAccelerate } from "@prisma/extension-accelerate";
 
 dotenv.config();
 
 // --- 客户端设置 ---
-const prisma = new PrismaClient();
+export const prisma = new PrismaClient().$extends(withAccelerate())
 const turso = createClient({
     url: process.env.TURSO_DATABASE_URL!,
     authToken: process.env.TURSO_AUTH_TOKEN!,

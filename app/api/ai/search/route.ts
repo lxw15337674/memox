@@ -14,8 +14,8 @@ const turso = createClient({
     url: process.env.TURSO_DATABASE_URL!,
     authToken: process.env.TURSO_AUTH_TOKEN!,
 });
-const TOP_K = 20; // Retrieve top 20 most similar memos
-const SIMILARITY_THRESHOLD = 0.5; // Cosine distance threshold, lower is more similar (0.5 -> 50% similarity)
+const TOP_K = 30; // Retrieve top 30 most similar memos
+const SIMILARITY_THRESHOLD = 0.4; // Cosine distance threshold, lower is more similar (0.4 -> 60% similarity)
 
 console.log("🔧 AI Search Route initialized with config:");
 console.log("- TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "✅ Set" : "❌ Missing");

@@ -9,7 +9,7 @@ export interface ChatMessage {
 // 更新后的AI请求格式
 export interface AIRequest {
     messages: ChatMessage[];
-    model: string;
+    model?: string;
     temperature?: number;
     maxTokens?: number;
     stream?: boolean;

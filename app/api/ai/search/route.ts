@@ -229,7 +229,6 @@ export async function POST(req: Request) {
                 { role: 'system', content: rolePrompt },
                 { role: 'user', content: trimmedQuery }
             ],
-            model: 'Qwen/Qwen3-30B-A3B-Instruct-2507',
             temperature: 0.5,
             maxTokens: 1500
         });

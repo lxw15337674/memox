@@ -244,7 +244,6 @@ export async function POST(req: Request) {
                 { role: 'system', content: '请分析这些笔记内容' },
                 { role: 'user', content: prompt }
             ],
-            model: 'Qwen/Qwen3-30B-A3B-Instruct-2507',
             temperature: 0.6,
             maxTokens: 2000
         });

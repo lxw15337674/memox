@@ -1,10 +1,7 @@
 'use server';
 
-import axios from 'axios';
+import { callAI } from '../services';
 import { getTagsAction } from './dbActions';
-import { API_URL } from './config';
-
-const AI_API_URL = `${API_URL}/api/ai/chat`
 
 const tagPrompt = (tags: string[]) => `
 您是一位专业的内容分析助手，擅长提取文本核心主题并生成精准的标签。
@@ -13,11 +10,10 @@ const tagPrompt = (tags: string[]) => `
 标签生成规则：
 1. 首先检查内容中是否包含 #标签 格式文本，如有则直接提取(最高优先级，无视其他规则)
    例如：文本中包含"今天天气真好 #值得记录的事情"，应提取出"值得记录的事情"标签(不要#)，
-2. 提炼内容核心主题和关键概念
-3. 只能从现有标签库中选择匹配的标签，不要创造新标签
-6. 确保标签之间相互独立，不重复表达相同概念
-7. 最多生成三个标签
-8. 请严格按照格式返回： ["标签1", "标签2", "标签3"]，不要添加其他内容或解释。
+2. 提炼内容核心主题和关键概念，从现有标签库中选择匹配的标签，不能创造新标签
+3. 确保标签之间相互独立，不重复表达相同概念
+4. 最多生成三个标签
+5. 请严格按照JSON格式返回： {"tags": ["标签1", "标签2", "标签3"]}，不要添加其他内容或解释。
 `;
 
 const polishPrompt = () => `
@@ -30,11 +26,15 @@ const polishPrompt = () => `
 4. 保持适度的书面语气，避免过于口语化。
 5. 保留原文中的特殊格式（如#标签）
 6. 控制输出长度，不超过原文的2倍
-请直接返回润色后的文本，无需其他解释。尽可能给我多种版本的润色结果。返回结果按照以下格式：
-  [更简洁]我已孑然一身，便无所畏惧。 
-  [更书面]既已一无所有，便也无惧失去。
-  [略微扩展，更强调内心]或许正因我本就一无所有，内心反而不再有所畏惧。 
-  [强调彻底的无所畏惧]正因我一无所有，才真正无所畏惧。
+请按照JSON格式返回润色结果，格式如下：
+{
+  "polished": {
+    "简洁版": "简洁版本的润色文本",
+    "书面版": "书面版本的润色文本", 
+    "扩展版": "略微扩展的润色文本",
+    "强调版": "强调重点的润色文本"
+  }
+}
 `;
 
 
@@ -42,12 +42,16 @@ export const generateTags = async (content: string): Promise<string[]> => {
     try {
         const tags = await getTagsAction();
         const rolePrompt = tagPrompt(tags.map(tag => tag.name));
-        const response = await axios.post(AI_API_URL, {
-            prompt: content,
-            rolePrompt
+        
+        const response = await callAI({
+            messages: [
+                { role: 'system', content: rolePrompt },
+                { role: 'user', content: content }
+            ],
+            temperature: 0.3
         });
-        const newTags = response.data as string[];
-        return newTags;
+        const result = JSON.parse(response.content);
+        return result.tags || [];
     } catch (error) {   
         console.error('生成标签时出错:', error);
         return [];
@@ -56,11 +60,24 @@ export const generateTags = async (content: string): Promise<string[]> => {
 
 export const polishContent = async (content: string): Promise<string> => {
     try {
-        const response = await axios.post(AI_API_URL, {
-            prompt: content,
-            rolePrompt: polishPrompt()
+        const response = await callAI({
+            messages: [
+                { role: 'system', content: polishPrompt() },
+                { role: 'user', content: content }
+            ],
+            temperature: 0.7
         });
-        return response.data;
+        
+        const result = JSON.parse(response.content);
+        if (result.polished) {
+            // 将多个版本组合成一个字符串返回
+            const versions = result.polished;
+            return Object.entries(versions)
+                .map(([key, value]) => `[${key}] ${value}`)
+                .join('\n');
+        }
+        
+        return response.content;
     } catch (error) {
         console.error('润色文本时出错:', error);
         return content;

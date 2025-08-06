@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Settings } from 'lucide-react';
+import { Settings, Trash2 } from 'lucide-react';
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -10,7 +10,19 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Switch } from '../ui/switch';
 import useConfigStore from '@/store/config';
 import PasswordInput from '../PasswordInput';
@@ -22,13 +34,24 @@ import { useState } from 'react';
 // import { parseMastodonData } from '../../utils/importData';
 import useImportMemos from './useImportMemos';
 import Icon from '../Icon';
-import { clearAllDataAction } from '@/api/dbActions';
+import { clearAllDataAction, getUnderUsedTagsAction, deleteUnderUsedTagsAction } from '@/api/dbActions';
+import useCountStore from '@/store/count';
+import useFilterStore from '@/store/filter';
 export function Setting() {
     const { config, setConfig, resetGeneralConfig } = useConfigStore()
     const { toast } = useToast()
     const [editCode, setEditCode] = useState(config.codeConfig.editCode)
     const router = useRouter()
     const { importData, memos, importedMemos, loading } = useImportMemos()
+    const { fetchTags } = useCountStore()
+    const { removeTagFilter } = useFilterStore()
+    
+    // 低频标签清理相关状态
+    const [threshold, setThreshold] = useState(10)
+    const [underUsedTags, setUnderUsedTags] = useState<any[]>([])
+    const [isLoadingTags, setIsLoadingTags] = useState(false)
+    const [isDeletingTags, setIsDeletingTags] = useState(false)
+    const [showConfirmDialog, setShowConfirmDialog] = useState(false)
 
     const formatMastodonData = () => {
         toast({
@@ -57,6 +80,67 @@ export function Setting() {
             });
         }
     };
+
+    // 查询低频标签
+    const handleCheckUnderUsedTags = async () => {
+        setIsLoadingTags(true)
+        try {
+            const tags = await getUnderUsedTagsAction(threshold)
+            setUnderUsedTags(tags)
+            if (tags.length === 0) {
+                toast({
+                    title: "没有找到低频标签",
+                    description: `没有找到关联数少于 ${threshold} 的标签`,
+                    duration: 2000
+                })
+            } else {
+                setShowConfirmDialog(true)
+            }
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "查询失败",
+                description: "查询低频标签时出现错误",
+                duration: 2000
+            })
+        } finally {
+            setIsLoadingTags(false)
+        }
+    }
+
+    // 执行删除低频标签
+    const handleDeleteUnderUsedTags = async () => {
+        setIsDeletingTags(true)
+        try {
+            const result = await deleteUnderUsedTagsAction(threshold)
+            
+            // 清理筛选条件中被删除的标签
+            result.deletedTags.forEach(tag => {
+                removeTagFilter(tag.name)
+            })
+            
+            // 刷新标签数据
+            fetchTags()
+            
+            toast({
+                title: "删除成功",
+                description: `成功删除 ${result.deletedCount} 个低频标签`,
+                duration: 3000
+            })
+            
+            setShowConfirmDialog(false)
+            setUnderUsedTags([])
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "删除失败", 
+                description: "删除低频标签时出现错误",
+                duration: 2000
+            })
+        } finally {
+            setIsDeletingTags(false)
+        }
+    }
 
     return (
         <Dialog>
@@ -110,6 +194,58 @@ export function Setting() {
                     }}>
                         重置密码
                     </Button>
+                    <Separator className="my-4" />
+
+                    <div className="space-y-4">
+                        <Label className="flex flex-col space-y-1">
+                            <span className="text-lg font-semibold">
+                                标签管理
+                            </span>
+                        </Label>
+
+                        <div className="space-y-2">
+                            <Label className="flex flex-col space-y-1">
+                                <span>
+                                    清理低频标签
+                                </span>
+                                <span className="text-xs font-normal leading-snug text-muted-foreground">
+                                    删除关联备忘录数量少于指定阈值的标签，谨慎操作，删除后不可恢复
+                                </span>
+                            </Label>
+                            <div className="flex gap-2">
+                                <Input
+                                    type="number"
+                                    min="1"
+                                    value={threshold}
+                                    onChange={(e) => setThreshold(parseInt(e.target.value) || 10)}
+                                    className="w-20"
+                                />
+                                <span className="flex items-center text-sm text-muted-foreground">
+                                    个关联
+                                </span>
+                            </div>
+                            <Button 
+                                type="button" 
+                                className="w-full" 
+                                variant="outline" 
+                                onClick={handleCheckUnderUsedTags} 
+                                disabled={isLoadingTags}
+                            >
+                                {isLoadingTags ? (
+                                    <>
+                                        <Icon.Loader2 size={16} className="animate-spin mr-2" />
+                                        查询中...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 size={16} className="mr-2" />
+                                        查找并删除低频标签
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </div>
+
                     <Separator className="my-4" />
 
                     <div className="space-y-4">
@@ -191,6 +327,62 @@ export function Setting() {
                     </div> */}
                 </div>
             </DialogContent>
+
+            {/* 确认删除低频标签对话框 */}
+            <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+                <AlertDialogContent className="max-w-md">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <Trash2 size={20} className="text-destructive" />
+                            确认删除低频标签？
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-3">
+                            <div>
+                                找到 <span className="font-semibold text-foreground">{underUsedTags.length}</span> 个关联数少于 <span className="font-semibold text-foreground">{threshold}</span> 的标签：
+                            </div>
+                            
+                            {underUsedTags.length > 0 && (
+                                <div className="max-h-32 overflow-y-auto bg-muted/30 rounded-md p-2">
+                                    <div className="space-y-1">
+                                        {underUsedTags.map((tag, index) => (
+                                            <div key={tag.id} className="flex justify-between items-center text-sm">
+                                                <span className="truncate">#{tag.name}</span>
+                                                <span className="text-muted-foreground text-xs ml-2">
+                                                    {tag.memoCount} 个关联
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            <div className="text-destructive font-medium">
+                                ⚠️ 此操作不可撤销，请谨慎确认！
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeletingTags}>取消</AlertDialogCancel>
+                        <AlertDialogAction 
+                            onClick={handleDeleteUnderUsedTags}
+                            disabled={isDeletingTags}
+                            className="bg-destructive hover:bg-destructive/90"
+                        >
+                            {isDeletingTags ? (
+                                <>
+                                    <Icon.Loader2 size={16} className="animate-spin mr-2" />
+                                    删除中...
+                                </>
+                            ) : (
+                                <>
+                                    <Trash2 size={16} className="mr-2" />
+                                    确认删除
+                                </>
+                            )}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     );
 }

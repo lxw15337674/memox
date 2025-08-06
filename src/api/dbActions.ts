@@ -577,4 +577,144 @@ export const regenerateMemeTags = async (memoId: string) => {
     }
 };
 
+// 查询关联数量少于指定阈值的标签
+export const getUnderUsedTagsAction = async (threshold: number = 10) => {
+    try {
+        const tagsWithCount = await prisma.tag.findMany({
+            include: {
+                _count: {
+                    select: {
+                        memos: {
+                            where: {
+                                deleted_at: null
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // 筛选出关联数量少于阈值的标签
+        const underUsedTags = tagsWithCount
+            .filter(tag => tag._count.memos < threshold)
+            .map(tag => ({
+                ...tag,
+                memoCount: tag._count.memos
+            }));
+
+        return underUsedTags;
+    } catch (error) {
+        console.error("获取低频标签失败:", error);
+        throw error;
+    }
+};
+
+// 批量删除低频标签
+export const deleteUnderUsedTagsAction = async (threshold: number = 10) => {
+    try {
+        const result = await prisma.$transaction(async (tx) => {
+            // 1. 查询需要删除的标签
+            const tagsToDelete = await tx.tag.findMany({
+                include: {
+                    _count: {
+                        select: {
+                            memos: {
+                                where: {
+                                    deleted_at: null
+                                }
+                            }
+                        }
+                    }
+                },
+                where: {
+                    memos: {
+                        every: {
+                            OR: [
+                                { deleted_at: { not: null } }, // 已删除的memo
+                                {
+                                    // 计算关联的有效memo数量 < threshold
+                                    id: {
+                                        in: await tx.tag.findMany({
+                                            include: {
+                                                _count: {
+                                                    select: {
+                                                        memos: {
+                                                            where: {
+                                                                deleted_at: null
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }).then(tags => 
+                                            tags
+                                                .filter(tag => tag._count.memos < threshold)
+                                                .map(tag => tag.id)
+                                        )
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            });
+
+            // 更简单的查询方式
+            const allTags = await tx.tag.findMany({
+                include: {
+                    _count: {
+                        select: {
+                            memos: {
+                                where: {
+                                    deleted_at: null
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            const tagsToDeleteIds = allTags
+                .filter(tag => tag._count.memos < threshold)
+                .map(tag => tag.id);
+
+            if (tagsToDeleteIds.length === 0) {
+                return {
+                    deletedCount: 0,
+                    deletedTags: []
+                };
+            }
+
+            // 2. 记录要删除的标签信息
+            const deletedTagsInfo = allTags
+                .filter(tag => tagsToDeleteIds.includes(tag.id))
+                .map(tag => ({
+                    id: tag.id,
+                    name: tag.name,
+                    memoCount: tag._count.memos
+                }));
+
+            // 3. 批量删除标签
+            const deleteResult = await tx.tag.deleteMany({
+                where: {
+                    id: {
+                        in: tagsToDeleteIds
+                    }
+                }
+            });
+
+            return {
+                deletedCount: deleteResult.count,
+                deletedTags: deletedTagsInfo
+            };
+        });
+
+        console.log(`成功删除 ${result.deletedCount} 个低频标签`);
+        return result;
+    } catch (error) {
+        console.error("删除低频标签失败:", error);
+        throw error;
+    }
+};
+
 

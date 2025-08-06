@@ -7,12 +7,6 @@ const openai = new OpenAI({
     apiKey: process.env.SILICONFLOW_API_KEY,
 });
 
-// 模型配置 - 不同功能使用不同模型优化性能和成本
-const MODELS = {
-    tags: 'deepseek-ai/DeepSeek-V3',
-    polish: 'deepseek-ai/DeepSeek-V3',
-    default: 'deepseek-ai/DeepSeek-V3'
-} as const;
 
 /**
  * AI服务错误处理
@@ -25,7 +19,7 @@ export { AIServiceError };
 export async function callAI(request: AIRequest): Promise<AIResponse> {
     try {
         const response = await openai.chat.completions.create({
-            model: request.model || MODELS.default,
+            model: request.model ,
             messages: request.messages,
             temperature: request.temperature || 0.7,
             max_tokens: request.maxTokens || 1000,
@@ -85,7 +79,3 @@ export async function callAI(request: AIRequest): Promise<AIResponse> {
         );
     }
 }
-
-// 导出模型配置供Actions层使用
-export { MODELS };
-

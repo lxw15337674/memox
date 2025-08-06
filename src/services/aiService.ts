@@ -21,8 +21,7 @@ export async function callAI(request: AIRequest): Promise<AIResponse> {
         const response = await openai.chat.completions.create({
             model: request.model ,
             messages: request.messages,
-            temperature: request.temperature || 0.7,
-            max_tokens: request.maxTokens || 1000,
+            temperature: request.temperature,
             response_format: { type: "json_object" },
         });
 

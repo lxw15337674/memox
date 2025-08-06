@@ -1,7 +1,6 @@
 // AI服务 - 纯AI调用接口
 export {
     callAI,
-    MODELS,
     AIServiceError
 } from './aiService';
 

@@ -209,7 +209,7 @@ export function Setting() {
                                     清理低频标签
                                 </span>
                                 <span className="text-xs font-normal leading-snug text-muted-foreground">
-                                    删除关联备忘录数量少于指定阈值的标签，谨慎操作，删除后不可恢复
+                                    删除关联笔记数量少于指定阈值的标签，谨慎操作，删除后不可恢复
                                 </span>
                             </Label>
                             <div className="flex gap-2">
@@ -313,7 +313,7 @@ export function Setting() {
                                 <AlertDialogHeader>
                                     <AlertDialogTitle>确认清空数据？</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                        此操作将删除所有备忘录数据，包括内容、标签和链接。此操作不可撤销。
+                                        此操作将删除所有笔记数据，包括内容、标签和链接。此操作不可撤销。
                                     </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>

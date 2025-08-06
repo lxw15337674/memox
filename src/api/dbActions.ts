@@ -108,7 +108,7 @@ export const createNewMemo = async (newMemo: NewMemo) => {
         
         // 使用事务包装所有数据库操作，减少数据库往返
         const memo = await prisma.$transaction(async (tx) => {
-            // 在单个事务中创建备忘录和关联实体
+            // 在单个事务中创建笔记和关联实体
             return await tx.memo.create({
                 data: {
                     content,
@@ -360,10 +360,10 @@ export const getTagsWithCountAction = async () => {
 
 
 
-// 获取按日期分组的备忘录数量，获取备忘录总数，获取记录天数
+// 获取按日期分组的笔记数量，获取笔记总数，获取记录天数
 export const getCountAction = async (): Promise<MemosCount> => {
     try {
-        // 获取所有备忘录
+        // 获取所有笔记
         const memos = await prisma.memo.findMany({
             where: { deleted_at: null },
             select: {
@@ -397,8 +397,8 @@ export const getCountAction = async (): Promise<MemosCount> => {
             daysCount
         };
     } catch (error) {
-        console.error("获取按日期分组的备忘录失败:", error);
-        throw new Error("获取备忘录数据失败");
+        console.error("获取按日期分组的笔记失败:", error);
+        throw new Error("获取笔记数据失败");
     }
 };
 

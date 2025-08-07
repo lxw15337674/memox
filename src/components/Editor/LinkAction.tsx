@@ -58,11 +58,6 @@ export default function LinkAction({ link, setLink }: Props) {
         });
     }
 
-    const handleQuickClear = (e: React.MouseEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-        handleClear()
-    }
 
     const isValidUrl = (string: string) => {
         if (!string) return true

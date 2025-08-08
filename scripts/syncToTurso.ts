@@ -52,7 +52,7 @@ async function syncAllTagsInTransaction(tx: Transaction) {
     if (allTags.length > 0) {
         console.log(`🔗 同步所有 ${allTags.length} 个标签...`);
         const tagStatements = allTags.map(tag => ({
-            sql: "INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING;",
+            sql: "INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING;",
             args: [tag.id, tag.name, tag.createdAt.toISOString()],
         }));
         await tx.batch(tagStatements);

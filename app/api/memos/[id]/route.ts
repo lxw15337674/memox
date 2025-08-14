@@ -74,7 +74,7 @@ function validateUpdateMemoRequest(body: any): UpdateMemoRequest | null {
 // GET /api/memos/[id] - 获取单个memo
 export async function GET(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     // 应用认证中间件
     const authError = requireApiAuth(request);
@@ -83,7 +83,7 @@ export async function GET(
     }
 
     try {
-        const { id } = params;
+        const { id } = await params;
 
         // 验证ID
         if (!validateMemoId(id)) {
@@ -109,7 +109,7 @@ export async function GET(
         );
 
     } catch (error: any) {
-        console.error(`GET /api/memos/${params.id} error:`, error);
+        console.error(`GET /api/memos/${(await params).id} error:`, error);
         return NextResponse.json(
             createApiResponse(false, null, undefined, error.message || '获取memo失败'),
             { status: 500 }
@@ -121,7 +121,7 @@ export async function GET(
 // PUT /api/memos/[id] - 更新memo
 export async function PUT(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     // 应用认证中间件
     const authError = requireApiAuth(request);
@@ -130,7 +130,7 @@ export async function PUT(
     }
 
     try {
-        const { id } = params;
+        const { id } = await params;
 
         // 验证ID
         if (!validateMemoId(id)) {
@@ -187,7 +187,7 @@ export async function PUT(
         );
 
     } catch (error: any) {
-        console.error(`PUT /api/memos/${params.id} error:`, error);
+        console.error(`PUT /api/memos/${(await params).id} error:`, error);
         return NextResponse.json(
             createApiResponse(false, null, undefined, error.message || '更新memo失败'),
             { status: 500 }
@@ -198,7 +198,7 @@ export async function PUT(
 // DELETE /api/memos/[id] - 删除memo
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     // 应用认证中间件
     const authError = requireApiAuth(request);
@@ -207,7 +207,7 @@ export async function DELETE(
     }
 
     try {
-        const { id } = params;
+        const { id } = await params;
 
         // 验证ID
         if (!validateMemoId(id)) {
@@ -235,7 +235,7 @@ export async function DELETE(
         );
 
     } catch (error: any) {
-        console.error(`DELETE /api/memos/${params.id} error:`, error);
+        console.error(`DELETE /api/memos/${(await params).id} error:`, error);
         return NextResponse.json(
             createApiResponse(false, null, undefined, error.message || '删除memo失败'),
             { status: 500 }

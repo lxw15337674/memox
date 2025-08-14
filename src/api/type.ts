@@ -74,4 +74,31 @@ export interface InsightRequest {
   maxMemos?: number;
 }
 
+// API响应类型定义
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: string;
+  timestamp?: string;
+}
+
+
+
+export interface CreateMemoRequest {
+  content: string;
+  images?: string[];
+  link?: LinkType;
+  tags?: string[];
+}
+
+export interface UpdateMemoRequest {
+  content?: string;
+  images?: string[];
+  link?: LinkType;
+  tags?: string[];
+}
+
+
+
 export type { Filter, Note };

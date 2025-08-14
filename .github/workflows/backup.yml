@@ -3,12 +3,14 @@ name: Backup Data to Turso
 on:
   workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
   schedule:
-    - cron: '0 5 * * *' # Runs every day at 5 AM UTC
+    - cron: '0 5 * * *' # Runs every day at 5 AM Beijing Time (UTC+8)
 
 jobs:
   sync:
     name: Sync PostgreSQL to Turso
     runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
 
     steps:
       - name: Checkout repository

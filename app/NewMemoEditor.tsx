@@ -79,15 +79,6 @@ const NewMemoEditor: React.FC = () => {
                 });
                 startConfettiAnimation();
             }
-
-            // 异步生成标签，完成后更新store中的标签
-            regenerateMemeTags(newMemo.id).then((result) => {
-                if (result && result.tags) {
-                    // 更新store中memo的标签
-                    updateMemoTags(newMemo.id, result.tags);
-                }
-            });
-
             clearCache();
         }
     });

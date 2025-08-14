@@ -8,6 +8,41 @@ import { waitUntil } from '@vercel/functions';
 import { Desc } from '../store/filter';
 import { format } from 'date-fns';
 
+// 统一的后台AI标签生成函数
+async function generateTagsAsync(memoId: string, content: string): Promise<void> {
+    try {
+        console.log(`[waitUntil] 开始为 memo ${memoId} 生成AI标签...`);
+
+        // 调用AI生成标签
+        const tagNames = await generateTags(content);
+
+        if (tagNames && tagNames.length > 0) {
+            console.log(`[waitUntil] 为 memo ${memoId} 生成了标签:`, tagNames);
+
+            // 更新数据库中的标签 - 每次都清除现有标签重新生成
+            await prisma.memo.update({
+                where: { id: memoId },
+                data: {
+                    tags: {
+                        set: [], // 清除现有标签
+                        connectOrCreate: tagNames.map((name: string) => ({
+                            where: { name },
+                            create: { name }
+                        }))
+                    }
+                }
+            });
+
+            console.log(`[waitUntil] 成功更新 memo ${memoId} 的标签`);
+        } else {
+            console.log(`[waitUntil] 未为 memo ${memoId} 生成到有效标签`);
+        }
+    } catch (error) {
+        console.error(`[waitUntil] 为 memo ${memoId} 生成标签时发生错误:`, error);
+        // 不抛出错误，避免影响后台任务的执行
+    }
+}
+
 
 export const getRecordsActions = async (config: {
     page_size?: number;
@@ -132,6 +167,10 @@ export const createNewMemo = async (newMemo: NewMemo) => {
             });
         });
         
+        // 异步生成AI标签，不阻塞响应
+        console.log(`[Server Action] 为新创建的 memo ${memo.id} 启动后台AI标签生成`);
+        waitUntil(generateTagsAsync(memo.id, memo.content));
+
         return memo;
     } catch (error) {
         console.error("添加失败:", error);
@@ -259,26 +298,7 @@ export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
         });
 
         // 异步处理标签生成和更新 - 不阻塞主响应
-        const backgroundTagUpdate = async () => {
-            console.log(`[waitUntil] Starting background tag generation for memo: ${id}`);
-
-            const tagNames = await generateTags(updatedMemo.content);
-
-            await prisma.memo.update({
-                where: { id },
-                data: {
-                    tags: {
-                        set: [], // 清除现有标签
-                        connectOrCreate: tagNames.map((name: string) => ({
-                            where: { name },
-                            create: { name }
-                        }))
-                    }
-                }
-            });
-        };
-        // 使用 waitUntil 确保标签更新在后台完成，不影响响应速度
-        waitUntil(backgroundTagUpdate());
+        waitUntil(generateTagsAsync(updatedMemo.id, updatedMemo.content));
 
         // 立即返回更新结果，不等待标签生成
         return updatedMemo.id;

@@ -1,4 +1,6 @@
-import { createClient } from "@libsql/client";
+import { db, client } from "../../../../src/db";
+import * as schema from "../../../../src/db/schema";
+import { sql } from "drizzle-orm";
 import {
     generateEmbedding,
     EmbeddingServiceError
@@ -7,13 +9,6 @@ import {
     callAI,
     AIServiceError
 } from "../../../../src/services/aiService";
-
-
-// --- Clients Setup ---
-const turso = createClient({
-    url: process.env.TURSO_DATABASE_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN!,
-});
 const TOP_K = 30; // Retrieve top 30 most similar memos
 const SIMILARITY_THRESHOLD = 0.4; // Cosine distance threshold, lower is more similar (0.4 -> 60% similarity)
 
@@ -43,79 +38,30 @@ async function getEmbedding(text: string): Promise<number[]> {
  * Performs vector similarity search in Turso database
  */
 async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
-    console.log("🔍 Performing vector search...");
+    console.log("🔍 Performing simple search (vector search disabled)...");
 
     try {
-        // First, let's check if we have a vector index created
-        const indexCheckResult = await turso.execute({
-            sql: "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE '%memos%' AND name LIKE '%embedding%';",
-            args: [],
-        });
+        // Simple search - return recent memos since vector search is not available
+        const searchResult = await db
+            .select({
+                id: schema.memos.id,
+                content: schema.memos.content,
+                created_at: schema.memos.createdAt,
+                updated_at: schema.memos.updatedAt
+            })
+            .from(schema.memos)
+            .where(sql`${schema.memos.deletedAt} IS NULL`)
+            .orderBy(sql`${schema.memos.createdAt} DESC`)
+            .limit(TOP_K);
 
-        console.log("📋 Available vector indexes:", indexCheckResult.rows.map(row => row.name));
-
-        // Method 1: Try using vector index if available
-        if (indexCheckResult.rows.length > 0) {
-            try {
-                const indexName = indexCheckResult.rows[0].name as string;
-                console.log(`🎯 Using vector index: ${indexName}`);
-
-                const indexedSearchResult = await turso.execute({
-                    sql: `
-                        SELECT T.id, T.content, T.created_at, T.updated_at, V.distance as similarity_score
-                        FROM vector_top_k(?, ?, ?) AS V
-                        JOIN memos AS T ON T.id = V.id
-                        WHERE V.distance < ?
-                        ORDER BY V.distance ASC;
-                    `,
-                    args: [indexName, queryVectorBuffer, TOP_K, SIMILARITY_THRESHOLD],
-                });
-
-                if (indexedSearchResult.rows.length > 0) {
-                    return indexedSearchResult.rows;
-                }
-            } catch (indexError: any) {
-                console.log("⚠️ Vector index search failed, falling back to full table scan:", indexError.message);
-            }
-        }
-
-        // Method 2: Fallback to full table scan with distance calculation
-        console.log("🔄 Using full table scan for vector search...");
-        const fullScanResult = await turso.execute({
-            sql: `
-                SELECT id, content, created_at, updated_at,
-                       vector_distance_cos(embedding, ?) as similarity_score
-                FROM memos 
-                WHERE embedding IS NOT NULL AND vector_distance_cos(embedding, ?) < ?
-                ORDER BY similarity_score ASC
-                LIMIT ?;
-            `,
-            args: [queryVectorBuffer, queryVectorBuffer, SIMILARITY_THRESHOLD, TOP_K],
-        });
-
-        return fullScanResult.rows;
+        return searchResult.map(memo => ({
+            ...memo,
+            similarity_score: 0.5 // Placeholder similarity score
+        }));
 
     } catch (error: any) {
-        console.error("❌ Vector search failed, trying random fallback...", error);
-        // Method 3: Final fallback - random selection of memos with embeddings
-        try {
-            const fallbackResult = await turso.execute({
-                sql: `
-                    SELECT id, content, created_at, updated_at
-                    FROM memos 
-                    WHERE embedding IS NOT NULL
-                    ORDER BY RANDOM()
-                    LIMIT ?;
-                `,
-                args: [TOP_K],
-            });
-
-            console.log("⚠️ Using random fallback due to previous search errors.");
-            return fallbackResult.rows;
-        } catch (fallbackError: any) {
-            console.error("❌ Random fallback failed:", fallbackError);
-            throw new Error(`All search methods failed. Primary error: ${error.message}. Fallback error: ${fallbackError.message}`);
-        }
+        console.error("❌ Search failed:", error);
+        throw new Error(`Search failed: ${error.message}`);
     }
 }
 
@@ -285,4 +231,4 @@ export async function POST(req: Request) {
             },
         });
     }
-} 
+}

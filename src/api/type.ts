@@ -1,6 +1,4 @@
-import { Memo } from "@prisma/client";
-import { Tag } from "@prisma/client";
-import { Link } from "@prisma/client";
+import { Memo, Tag, Link } from "../db/schema";
 import { LinkType } from "../components/Editor/LinkAction";
 
 interface Filter {
@@ -31,17 +29,17 @@ export interface MemosCount {
 }
 
 
-type Note = Memo & {
+export type Note = Memo & {
   tags: Tag[];
   link?: Link;
 }
+
+import { NewMemo as DrizzleNewMemo } from "../db/schema";
 
 export interface NewMemo {
   content: string;
   images?: string[];
   link?: LinkType
-  created_time?: string;
-  last_edited_time?: string;
   tags?: string[];
 }
 export interface TagWithCount extends Tag {
@@ -101,4 +99,4 @@ export interface UpdateMemoRequest {
 
 
 
-export type { Filter, Note };
+export type { Filter };

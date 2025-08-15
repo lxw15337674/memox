@@ -31,7 +31,7 @@ const MemoActionMenu = ({ memoId, originalMemo, onEdit, parsedContent }: Props) 
 
   const handleDelete = async () => {
     try {
-      await deleteMemo(memoId);
+      await deleteMemo(Number(memoId));
       removeMemo(memoId);
       toast({
         title: "删除成功",
@@ -58,13 +58,13 @@ const MemoActionMenu = ({ memoId, originalMemo, onEdit, parsedContent }: Props) 
         title: "标签重新生成中",
         duration: 1000
       });
-      const memo = await regenerateMemeTags(memoId);
+      const memo = await regenerateMemeTags(Number(memoId));
       if (memo) {
-        updateMemo(memoId, memo as Note);
+        updateMemo(memoId, { ...memo, embedding: null } as unknown as Note);
       }
       toast({
         title: "标签生成成功",
-        description: `生成的标签为: ${memo?.tags?.map(item=>item.name).join(", ")}`,
+        description: `生成的标签为: ${(memo as any)?.tags?.map((item: any)=>item.name).join(", ")}`,
         duration: 1000
       });
     } catch (error) {

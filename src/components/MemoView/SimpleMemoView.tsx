@@ -23,10 +23,10 @@ const SimpleMemoView: React.FC<Note> = ({
                     </span>
                 </p>
             </div>
-            {link?.url &&
+            {link?.link &&
                 <div className='mt-1'>
-                    <a href={link.url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline text-sm">
-                        {link.text || link.url}
+                    <a href={link.link} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline text-sm">
+                        {link.text || link.link}
                     </a>
                 </div>
             }

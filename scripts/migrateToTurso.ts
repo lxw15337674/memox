@@ -1,0 +1,219 @@
+import { PrismaClient } from "@prisma/client";
+import { withAccelerate } from "@prisma/extension-accelerate";
+import { db, memos, tags, links, memoTags, syncMetadata } from "../src/db";
+import { eq, sql } from "drizzle-orm";
+import axios from "axios";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+// Prisma client setup
+const prisma = new PrismaClient().$extends(withAccelerate());
+
+// API configuration for embeddings
+const siliconflowApiKey = process.env.SILICONFLOW_API_KEY;
+const SILICONFLOW_API_URL = "https://api.siliconflow.cn/v1/embeddings";
+const EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-4B";
+const BATCH_SIZE = 32;
+
+if (!siliconflowApiKey) {
+    throw new Error("环境变量中未定义 SILICONFLOW_API_KEY。");
+}
+
+console.log("🔧 环境设置检查：");
+console.log("- TURSO 数据库地址:", process.env.TURSO_DATABASE_URL ? "✅ 已设置" : "❌ 未设置");
+console.log("- TURSO 认证令牌:", process.env.TURSO_AUTH_TOKEN ? "✅ 已设置" : "❌ 未设置");
+console.log("- SiliconFlow API 密钥:", process.env.SILICONFLOW_API_KEY ? "✅ 已设置" : "❌ 未设置");
+
+/**
+ * Generate embeddings for text content
+ */
+async function getEmbeddings(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return [];
+    
+    try {
+        const response = await axios.post(
+            SILICONFLOW_API_URL,
+            {
+                model: EMBEDDING_MODEL,
+                input: texts,
+                encoding_format: "float",
+            },
+            {
+                headers: {
+                    "Authorization": `Bearer ${siliconflowApiKey}`,
+                    "Content-Type": "application/json",
+                },
+                timeout: 60000,
+            }
+        );
+
+        if (response.data?.data) {
+            return response.data.data.map((item: any) => item.embedding);
+        } else {
+            throw new Error("API 响应格式不正确");
+        }
+    } catch (error: any) {
+        console.error("向量生成失败:", error.response?.data || error.message);
+        throw error;
+    }
+}
+
+/**
+ * Migrate all data from Prisma/PostgreSQL to Drizzle/Turso
+ */
+async function migrateAllData() {
+    const startTime = Date.now();
+    console.log("🚀 开始完整数据迁移...");
+
+    try {
+        // 1. Clear existing data in Turso (if any)
+        console.log("🧹 清理目标数据库...");
+        await db.delete(memoTags);
+        await db.delete(links);
+        await db.delete(memos);
+        await db.delete(tags);
+        await db.delete(syncMetadata);
+        console.log("✅ 目标数据库已清理");
+
+        // 2. Migrate tags first
+        console.log("🏷️ 开始迁移标签...");
+        const prismaTagsData = await prisma.tag.findMany();
+        
+        if (prismaTagsData.length > 0) {
+            const tagsToInsert = prismaTagsData.map(tag => ({
+                id: Number(tag.id),
+                name: tag.name,
+                createdAt: tag.createdAt.toISOString(),
+            }));
+            
+            await db.insert(tags).values(tagsToInsert);
+            console.log(`✅ 已迁移 ${prismaTagsData.length} 个标签`);
+        }
+
+        // 3. Migrate memos with embeddings
+        console.log("📝 开始迁移笔记...");
+        const prismaMemosData = await prisma.memo.findMany({
+            where: { deleted_at: null },
+            include: { tags: true, link: true }
+        });
+
+        if (prismaMemosData.length > 0) {
+            console.log(`📊 总共需要迁移 ${prismaMemosData.length} 条笔记`);
+            
+            // Process memos in batches
+            for (let i = 0; i < prismaMemosData.length; i += BATCH_SIZE) {
+                const batchMemos = prismaMemosData.slice(i, i + BATCH_SIZE);
+                const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+                const totalBatches = Math.ceil(prismaMemosData.length / BATCH_SIZE);
+                
+                console.log(`  - 批次 ${batchNumber}/${totalBatches}: 处理 ${batchMemos.length} 条笔记`);
+
+                // Generate embeddings for this batch
+                console.log(`    🔄 正在为批次生成向量...`);
+                const contents = batchMemos.map(memo => memo.content.trim());
+                const embeddings = await getEmbeddings(contents);
+                
+                if (embeddings.length !== batchMemos.length) {
+                    throw new Error(`批次 ${batchNumber} 的向量数量(${embeddings.length})与笔记数量(${batchMemos.length})不匹配`);
+                }
+
+                // Insert memos
+                const memosToInsert = batchMemos.map((memo, index) => {
+                    const embedding = embeddings[index];
+                    const embeddingBuffer = embedding ? Buffer.from(new Float32Array(embedding).buffer) : null;
+                    
+                    return {
+                        id: Number(memo.id),
+                        content: memo.content,
+                        images: JSON.stringify(memo.images),
+                        createdAt: memo.createdAt.toISOString(),
+                        updatedAt: memo.updatedAt.toISOString(),
+                        deletedAt: memo.deleted_at?.toISOString() || null,
+                        embedding: embeddingBuffer,
+                    };
+                });
+                
+                await db.insert(memos).values(memosToInsert);
+                console.log(`    ✅ 批次 ${batchNumber} 笔记迁移完成`);
+            }
+        }
+
+        // 4. Migrate links
+        console.log("🔗 开始迁移链接...");
+        const prismaLinksData = await prisma.link.findMany();
+        
+        if (prismaLinksData.length > 0) {
+            const linksToInsert = prismaLinksData.map(link => ({
+                id: Number(link.id),
+                link: link.url,
+                text: link.text,
+                memoId: Number(link.memoId),
+                createdAt: link.createdAt.toISOString(),
+            }));
+            
+            await db.insert(links).values(linksToInsert);
+            console.log(`✅ 已迁移 ${prismaLinksData.length} 个链接`);
+        }
+
+        // 5. Migrate memo-tag relationships
+        console.log("🔗 开始迁移笔记-标签关系...");
+        const memoTagRelations: { memoId: number; tagId: number }[] = [];
+        
+        for (const memo of prismaMemosData) {
+            for (const tag of memo.tags) {
+                memoTagRelations.push({
+                    memoId: Number(memo.id),
+                    tagId: Number(tag.id),
+                });
+            }
+        }
+        
+        if (memoTagRelations.length > 0) {
+            await db.insert(memoTags).values(memoTagRelations);
+            console.log(`✅ 已迁移 ${memoTagRelations.length} 个笔记-标签关系`);
+        }
+
+        // 6. Set sync metadata
+        console.log("💾 设置同步元数据...");
+        await db.insert(syncMetadata).values({
+            key: "last_successful_sync",
+            value: new Date().toISOString(),
+        });
+        
+        await db.insert(syncMetadata).values({
+            key: "migration_completed",
+            value: new Date().toISOString(),
+        });
+
+        const duration = (Date.now() - startTime) / 1000;
+        console.log(`\n🎉 数据迁移完成！耗时: ${duration.toFixed(2)} 秒`);
+        console.log(`📊 迁移统计:`);
+        console.log(`  - 标签: ${prismaTagsData.length}`);
+        console.log(`  - 笔记: ${prismaMemosData.length}`);
+        console.log(`  - 链接: ${prismaLinksData.length}`);
+        console.log(`  - 关系: ${memoTagRelations.length}`);
+
+    } catch (error) {
+        console.error("\n❌ 迁移过程中发生错误:", error);
+        throw error;
+    } finally {
+        await prisma.$disconnect();
+        console.log("✅ 数据库连接已关闭");
+    }
+}
+
+// Run migration
+if (require.main === module) {
+    migrateAllData()
+        .then(() => {
+            console.log("🎊 迁移脚本执行完成");
+            process.exit(0);
+        })
+        .catch((error) => {
+            console.error("💥 迁移脚本执行失败:", error);
+            process.exit(1);
+        });
+}
+
+export { migrateAllData };

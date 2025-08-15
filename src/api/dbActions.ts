@@ -1,10 +1,12 @@
 'use server';
 
 import { Filter, MemosCount, NewMemo, Note } from './type';
-import { prisma } from '.';
+import { NewMemo as DrizzleNewMemo } from '../db/schema';
+import { db as client } from '../db';
+import * as schema from '../db/schema';
 import { generateTags } from './aiActions';
 import { waitUntil } from '@vercel/functions';
-
+import { eq, and, desc, asc, count, isNull, isNotNull, gte, lt, inArray, like, sql } from 'drizzle-orm';
 import { Desc } from '../store/filter';
 import { format } from 'date-fns';
 
@@ -15,21 +17,20 @@ export const getRecordsActions = async (config: {
     filter?: Filter;
     desc?: Desc;
 }) => {
-    const { page_size = 30, page = 1, filter, desc = Desc.DESC } = config;
+    const { page_size = 30, page = 1, filter, desc: sortDesc = Desc.DESC } = config;
     try {
-        const filterWhere = filter ? buildWhereClause(filter) : {};
-        const where = {
-            ...filterWhere,
-            deleted_at: null
-        };
+        const filterConditions = filter ? buildWhereClause(filter) : [];
+        const whereConditions = [
+            ...filterConditions,
+            isNull(schema.memos.deletedAt)
+        ];
 
-        if (desc === Desc.RANDOM) {
-            // 方案二：两步查询法
+        if (sortDesc === Desc.RANDOM) {
             // 1. 只查询符合条件的 ID 列表
-            const memoIds = await prisma.memo.findMany({
-                where,
-                select: { id: true },
-            });
+            const memoIds = await client
+                .select({ id: schema.memos.id })
+                .from(schema.memos)
+                .where(and(...whereConditions));
             const total = memoIds.length;
 
             // 2. 在应用层对 ID 进行洗牌
@@ -43,12 +44,58 @@ export const getRecordsActions = async (config: {
             }
 
             // 4. 获取完整数据，并保持随机顺序
-            const items = await prisma.memo.findMany({
-                where: { id: { in: pageIds } },
-                include: { link: true, tags: true },
+            const items = await client
+                .select({
+                    id: schema.memos.id,
+                    content: schema.memos.content,
+                    images: schema.memos.images,
+                    createdAt: schema.memos.createdAt,
+                    updatedAt: schema.memos.updatedAt,
+                    deletedAt: schema.memos.deletedAt,
+                    embedding: schema.memos.embedding,
+                    link: {
+                        id: schema.links.id,
+                        url: schema.links.link,
+                        text: schema.links.text,
+                        memoId: schema.links.memoId
+                    }
+                })
+                .from(schema.memos)
+                .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
+                .where(inArray(schema.memos.id, pageIds));
+
+            // 5. 获取标签信息
+            const tagsData = await client
+                .select({
+                    memoId: schema.memoTags.memoId,
+                    tagId: schema.tags.id,
+                    tagName: schema.tags.name,
+                    tagCreatedAt: schema.tags.createdAt
+                })
+                .from(schema.memoTags)
+                .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
+                .where(inArray(schema.memoTags.memoId, pageIds));
+
+            // 组装数据
+            const itemsWithTags = items.map(item => {
+                const tags = tagsData
+                    .filter(mt => mt.memoId === item.id)
+                    .map(mt => ({ id: mt.tagId, name: mt.tagName, createdAt: mt.tagCreatedAt }));
+                return {
+                    ...item,
+                    images: JSON.parse(item.images || '[]'),
+                    tags,
+                    link: item.link && item.link.id ? {
+                        id: item.link.id,
+                        link: item.link.url,
+                        text: item.link.text,
+                        createdAt: item.createdAt,
+                        memoId: item.link.memoId
+                    } : undefined
+                };
             });
 
-            const sortedItems = items.sort((a, b) => pageIds.indexOf(a.id) - pageIds.indexOf(b.id));
+            const sortedItems = itemsWithTags.sort((a, b) => pageIds.indexOf(a.id) - pageIds.indexOf(b.id));
 
             return {
                 items: sortedItems as Note[],
@@ -56,25 +103,70 @@ export const getRecordsActions = async (config: {
             };
         }
 
-
-        const [items, total] = await Promise.all([
-            prisma.memo.findMany({
-                take: page_size,
-                skip: (page - 1) * page_size,
-                where,
-                orderBy: {
-                    createdAt: desc === Desc.DESC ? 'desc' : 'asc'
-                },
-                include: {
-                    link: true,
-                    tags: true
-                }
-            }),
-            prisma.memo.count({ where })
+        // 普通查询
+        const [items, totalResult] = await Promise.all([
+            client
+                .select({
+                    id: schema.memos.id,
+                    content: schema.memos.content,
+                    images: schema.memos.images,
+                    createdAt: schema.memos.createdAt,
+                    updatedAt: schema.memos.updatedAt,
+                    deletedAt: schema.memos.deletedAt,
+                    link: {
+                        id: schema.links.id,
+                        url: schema.links.link,
+                        text: schema.links.text,
+                        memoId: schema.links.memoId
+                    }
+                })
+                .from(schema.memos)
+                .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
+                .where(and(...whereConditions))
+                .orderBy(sortDesc === Desc.DESC ? desc(schema.memos.createdAt) : asc(schema.memos.createdAt))
+                .limit(page_size)
+                .offset((page - 1) * page_size),
+            client
+                .select({ count: count() })
+                .from(schema.memos)
+                .where(and(...whereConditions))
         ]);
+
+        // 获取标签
+        const memoIds = items.map(item => item.id);
+        const memoTags = memoIds.length > 0 ? await client
+            .select({
+                memoId: schema.memoTags.memoId,
+                tagId: schema.memoTags.tagId,
+                tagName: schema.tags.name,
+                tagCreatedAt: schema.tags.createdAt
+            })
+            .from(schema.memoTags)
+            .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
+            .where(inArray(schema.memoTags.memoId, memoIds)) : [];
+
+        // 组装数据
+        const itemsWithTags = items.map(item => {
+            const tags = memoTags
+                .filter(mt => mt.memoId === item.id)
+                .map(mt => ({ id: mt.tagId, name: mt.tagName, createdAt: mt.tagCreatedAt }));
+            return {
+                ...item,
+                images: JSON.parse(item.images || '[]'),
+                tags,
+                link: item.link && item.link.id ? {
+                    id: item.link.id,
+                    link: item.link.url,
+                    text: item.link.text,
+                    createdAt: item.createdAt,
+                    memoId: item.link.memoId
+                } : undefined
+            };
+        });
+
         return {
-            items: items as Note[],
-            total,
+            items: itemsWithTags as Note[],
+            total: totalResult[0].count,
         }
     } catch (error) {
         console.error("数据获取失败:", error);
@@ -103,33 +195,67 @@ export const getMemosDataActions = async ({ filter, desc = Desc.DESC, page = 1 }
 
 export const createNewMemo = async (newMemo: NewMemo) => {
     try {
-        const { content, images, link, created_time, last_edited_time, tags } = newMemo;
+        const { content, images, link, tags } = newMemo;
         const tagNames: string[] = tags && tags.length > 0 ? tags : [];
         
         // 使用事务包装所有数据库操作，减少数据库往返
-        const memo = await prisma.$transaction(async (tx) => {
-            // 在单个事务中创建笔记和关联实体
-            return await tx.memo.create({
-                data: {
-                    content,
-                    images: images || [],
-                    createdAt: created_time ? new Date(created_time) : new Date(),
-                    updatedAt: last_edited_time ? new Date(last_edited_time) : new Date(),
-                    tags: {
-                        connectOrCreate: tagNames.map((name: string) => ({
-                            where: { name },
-                            create: { name }
-                        }))
-                    },
-                    link: link ? {
-                        create: link
-                    } : undefined
-                },
-                include: {
-                    tags: true,
-                    link: true
+        const memo = await client.transaction(async (tx) => {
+            // 创建memo
+            const memoData = {
+                content,
+                images: JSON.stringify(images || []),
+            } satisfies typeof schema.memos.$inferInsert;
+            const [newMemo] = await tx
+                .insert(schema.memos)
+                .values(memoData)
+                .returning();
+
+            // 处理标签
+            const memoTags = [];
+            for (const tagName of tagNames) {
+                // 查找或创建标签
+                let [tag] = await tx
+                    .select()
+                    .from(schema.tags)
+                    .where(eq(schema.tags.name, tagName));
+                
+                if (!tag) {
+                    [tag] = await tx
+                        .insert(schema.tags)
+                        .values({ name: tagName })
+                        .returning();
                 }
-            });
+
+                // 创建memo-tag关联
+                await tx
+                    .insert(schema.memoTags)
+                    .values({
+                        memoId: newMemo.id,
+                        tagId: tag.id
+                    });
+                
+                memoTags.push(tag);
+            }
+
+            // 处理链接
+            let memoLink = null;
+            if (link) {
+                [memoLink] = await tx
+                    .insert(schema.links)
+                    .values({
+                        link: link.url,
+                        text: link.text,
+                        memoId: newMemo.id
+                    })
+                    .returning();
+            }
+
+            return {
+                ...newMemo,
+                images: JSON.parse(newMemo.images || '[]'),
+                tags: memoTags,
+                link: memoLink
+            };
         });
         
         // 异步生成AI标签，不阻塞响应
@@ -143,14 +269,12 @@ export const createNewMemo = async (newMemo: NewMemo) => {
     }
 };
 
-export const deleteMemo = async (id: string) => {
+export const deleteMemo = async (id: number) => {
     try {
-        await prisma.memo.update({
-            where: { id },
-            data: {
-                deleted_at: new Date(),
-            }
-        });
+        await client
+            .update(schema.memos)
+            .set({ deletedAt: new Date().toISOString() })
+            .where(eq(schema.memos.id, Number(id)));
         console.log("软删除成功");
     } catch (error) {
         console.error("软删除失败:", error);
@@ -158,18 +282,53 @@ export const deleteMemo = async (id: string) => {
     }
 };
 
-export const getMemoByIdAction = async (id: string) => {
+export const getMemoByIdAction = async (id: number) => {
     try {
-        const memo = await prisma.memo.findUnique({
-            where: { id, deleted_at: null },
-            include: {
-                link: true,
-                tags: true
-            }
-        });
+        const [memo] = await client
+            .select({
+                id: schema.memos.id,
+                content: schema.memos.content,
+                images: schema.memos.images,
+                createdAt: schema.memos.createdAt,
+                updatedAt: schema.memos.updatedAt,
+                deletedAt: schema.memos.deletedAt,
+                embedding: schema.memos.embedding,
+                link: {
+                    id: schema.links.id,
+                    url: schema.links.link,
+                    text: schema.links.text,
+                    memoId: schema.links.memoId
+                }
+            })
+            .from(schema.memos)
+            .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
+            .where(and(eq(schema.memos.id, Number(id)), isNull(schema.memos.deletedAt)));
 
         if (!memo) return null;
-        return memo;
+
+        // 获取标签
+        const memoTags = await client
+            .select({
+                tagId: schema.memoTags.tagId,
+                tagName: schema.tags.name,
+                tagCreatedAt: schema.tags.createdAt
+            })
+            .from(schema.memoTags)
+            .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
+            .where(eq(schema.memoTags.memoId, id));
+
+        return {
+            ...memo,
+            images: JSON.parse(memo.images || '[]'),
+            tags: memoTags.map(mt => ({ id: mt.tagId, name: mt.tagName, createdAt: mt.tagCreatedAt })),
+            link: memo.link && memo.link.id ? {
+                id: memo.link.id,
+                link: memo.link.url,
+                text: memo.link.text,
+                createdAt: memo.createdAt,
+                memoId: memo.link.memoId
+            } : undefined
+        };
     } catch (error) {
         console.error(error);
         return null;
@@ -177,40 +336,54 @@ export const getMemoByIdAction = async (id: string) => {
 };
 
 // 快速更新memo，不进行AI标签生成（适用于频繁保存场景）
-export const updateMemoQuickAction = async (id: string, newMemo: NewMemo) => {
+export const updateMemoQuickAction = async (id: number, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
 
-        const updatedMemo = await prisma.$transaction(async (tx) => {
-            const existingMemo = await tx.memo.findUnique({
-                where: { id },
-                select: {
-                    link: { select: { id: true } }
-                }
-            });
+        const updatedMemo = await client.transaction(async (tx) => {
+            // 检查memo是否存在
+            const [existingMemo] = await tx
+                .select({ id: schema.memos.id })
+                .from(schema.memos)
+                .where(and(eq(schema.memos.id, Number(id)), isNull(schema.memos.deletedAt)));
 
             if (!existingMemo) {
                 throw new Error('Memo not found');
             }
 
-            return await tx.memo.update({
-                where: { id },
-                data: {
+            // 更新memo
+            await tx
+                .update(schema.memos)
+                .set({
                     content,
-                    images: images || [],
-                    updatedAt: new Date(),
-                    link: {
-                        ...((!existingMemo?.link && !link) ? {} :
-                            (!link ? { delete: true } :
-                                (!existingMemo?.link ? { create: { url: link.url, text: link.text } } :
-                                    { update: { url: link.url, text: link.text } })))
-                    }
-                },
-                include: {
-                    link: true,
-                    tags: true
-                }
-            });
+                    images: JSON.stringify(images || []),
+                    updatedAt: new Date().toISOString()
+                })
+                .where(eq(schema.memos.id, Number(id)));
+
+            // 处理链接
+            if (link) {
+                // 删除现有链接
+                await tx
+                    .delete(schema.links)
+                    .where(eq(schema.links.memoId, id));
+                
+                // 创建新链接
+                await tx
+                    .insert(schema.links)
+                    .values({
+                        link: link.url,
+                        text: link.text,
+                        memoId: id
+                    });
+            } else {
+                // 如果没有链接，删除现有链接
+                await tx
+                    .delete(schema.links)
+                    .where(eq(schema.links.memoId, id));
+            }
+
+            return { id };
         });
 
         return updatedMemo.id;
@@ -221,52 +394,62 @@ export const updateMemoQuickAction = async (id: string, newMemo: NewMemo) => {
 };
 
 // 完整更新memo，包含AI标签生成（适用于完成编辑后的最终保存）
-export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
+export const updateMemoAction = async (id: number, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
 
         // 使用事务优化数据库操作，减少往返次数
-        const updatedMemo = await prisma.$transaction(async (tx) => {
-            // 获取现有的memo数据（仅在需要时查询必要字段）
-            const existingMemo = await tx.memo.findUnique({
-                where: { id },
-                select: {
-                    content: true,
-                    link: { select: { id: true } }
-                }
-            });
+        const updatedMemo = await client.transaction(async (tx) => {
+            // 检查memo是否存在
+            const [existingMemo] = await tx
+                .select({ id: schema.memos.id })
+                .from(schema.memos)
+                .where(and(eq(schema.memos.id, Number(id)), isNull(schema.memos.deletedAt)));
 
             if (!existingMemo) {
                 throw new Error('Memo not found');
             }
 
-            // 更新memo - 合并所有更新操作到单次查询
-            return await tx.memo.update({
-                where: { id },
-                data: {
+            // 更新memo
+            await tx
+                .update(schema.memos)
+                .set({
                     content,
-                    images: images || [],
-                    updatedAt: new Date(),
-                    link: {
-                        // 优化link处理逻辑
-                        ...((!existingMemo?.link && !link) ? {} : 
-                            (!link ? { delete: true } : 
-                                (!existingMemo?.link ? { create: { url: link.url, text: link.text } } :
-                                    { update: { url: link.url, text: link.text } })))
-                    }
-                },
-                include: {
-                    link: true,
-                    tags: true
-                }
-            });
+                    images: JSON.stringify(images || []),
+                    updatedAt: new Date().toISOString()
+                })
+                .where(eq(schema.memos.id, Number(id)));
+
+            // 处理链接
+            if (link) {
+                // 删除现有链接
+                await tx
+                    .delete(schema.links)
+                    .where(eq(schema.links.memoId, id));
+                
+                // 创建新链接
+                await tx
+                    .insert(schema.links)
+                    .values({
+                        link: link.url,
+                        text: link.text,
+                        memoId: id
+                    });
+            } else {
+                // 如果没有链接，删除现有链接
+                await tx
+                    .delete(schema.links)
+                    .where(eq(schema.links.memoId, id));
+            }
+
+            return { id };
         });
 
         // 异步处理标签生成和更新 - 不阻塞主响应
-        waitUntil(regenerateMemeTags(updatedMemo.id));
+        waitUntil(regenerateMemeTags(id));
 
         // 立即返回更新结果，不等待标签生成
-        return updatedMemo.id;
+        return id;
     } catch (error) {
         console.error("更新失败:", error);
         return null;
@@ -274,73 +457,72 @@ export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
 };
 
 function buildWhereClause(filter: Filter) {
-    const where: any = {};
     const conditions = filter.conditions || [];
+    const whereConditions: any[] = [];
 
     conditions.forEach(condition => {
         if (condition.field_name === "content") {
-            where.content = {
-                contains: condition.value[0]
-            };
+            whereConditions.push(like(schema.memos.content, `%${condition.value[0]}%`));
             return;
         }
         if (condition.field_name === "tags") {
-            where.tags = {
-                some: {
-                    name: {
-                        in: condition.value
-                    }
-                }
-            };
+            // 对于标签过滤，需要子查询
+            const tagSubquery = client
+                .select({ memoId: schema.memoTags.memoId })
+                .from(schema.memoTags)
+                .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
+                .where(inArray(schema.tags.name, condition.value));
+            whereConditions.push(inArray(schema.memos.id, tagSubquery));
             return;
         }
         if (condition.field_name === "created_time") {
             const date = new Date(condition.value[0]);
-            where.createdAt = {
-                gte: new Date(date.setHours(0, 0, 0, 0)),
-                lt: new Date(date.setHours(24, 0, 0, 0))
-            };
+            const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+            const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+            whereConditions.push(
+                and(
+                    gte(schema.memos.createdAt, startOfDay.toISOString()),
+                    lt(schema.memos.createdAt, endOfDay.toISOString())
+                )
+            );
             return;
         }
         if (condition.field_name === "images") {
             if (condition.operator === "isNotEmpty") {
-                where.images = {
-                    isEmpty: false
-                };
+                whereConditions.push(sql`json_array_length(${schema.memos.images}) > 0`);
             } else if (condition.operator === "isEmpty") {
-                where.images = {
-                    isEmpty: true
-                };
+                whereConditions.push(sql`json_array_length(${schema.memos.images}) = 0`);
             }
             return;
         }
     });
 
-    return where;
+    return whereConditions;
 }
 
 export const getTagsAction = async () => {
-    const tags = await prisma.tag.findMany();
+    const tags = await client.select().from(schema.tags);
     return tags;
 };
 
 export const getTagsWithCountAction = async () => {
-    const tagsWithCount = await prisma.tag.findMany({
-        include: {
-            _count: {
-                select: {
-                    memos: true // 统计与每个标签关联的 memos 数量
-                }
-            }
-        },
-    });
-
-    return tagsWithCount
-        .map(tag => ({
-            ...tag,
-            memoCount: tag._count.memos
-        }))
-        .sort((a, b) => b.memoCount - a.memoCount); // Sort by memoCount in descending order
+    const tagsWithCount = await client
+        .select({
+            id: schema.tags.id,
+            name: schema.tags.name,
+            createdAt: schema.tags.createdAt,
+            memoCount: count(schema.memoTags.memoId)
+        })
+        .from(schema.tags)
+        .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
+        .leftJoin(schema.memos, and(
+            eq(schema.memoTags.memoId, schema.memos.id),
+            isNull(schema.memos.deletedAt)
+        ))
+        .groupBy(schema.tags.id, schema.tags.name, schema.tags.createdAt)
+          .orderBy(desc(count(schema.memoTags.memoId)));
+ 
+     return tagsWithCount;
 };
 
 
@@ -349,19 +531,15 @@ export const getTagsWithCountAction = async () => {
 export const getCountAction = async (): Promise<MemosCount> => {
     try {
         // 获取所有笔记
-        const memos = await prisma.memo.findMany({
-            where: { deleted_at: null },
-            select: {
-                createdAt: true
-            },
-            orderBy: {
-                createdAt: 'asc'
-            }
-        });
+        const memos = await client
+            .select({ createdAt: schema.memos.createdAt })
+            .from(schema.memos)
+            .where(isNull(schema.memos.deletedAt))
+            .orderBy(asc(schema.memos.createdAt));
 
         // 按日期分组统计
         const groupByDate = memos.reduce((acc: Record<string, number>, memo) => {
-            const date = format(memo.createdAt, 'yyyy/MM/dd');
+            const date = format(new Date(memo.createdAt), 'yyyy/MM/dd');
             acc[date] = (acc[date] || 0) + 1;
             return acc;
         }, {});
@@ -389,14 +567,13 @@ export const getCountAction = async (): Promise<MemosCount> => {
 
 export const clearAllDataAction = async () => {
     try {
-        await prisma.link.deleteMany({});
-        await prisma.tag.deleteMany({});
-        await prisma.memo.updateMany({
-            where: { deleted_at: null },
-            data: {
-                deleted_at: new Date(),
-            }
-        });
+        await client.delete(schema.links);
+        await client.delete(schema.memoTags);
+        await client.delete(schema.tags);
+        await client
+            .update(schema.memos)
+            .set({ deletedAt: new Date().toISOString() })
+            .where(isNull(schema.memos.deletedAt));
         return { success: true };
     } catch (error) {
         console.error("清空数据失败:", error);
@@ -405,68 +582,41 @@ export const clearAllDataAction = async () => {
 };
 
 export const deleteTagAction = async (tagName: string) => {
-    const tag = await prisma.tag.delete({
-        where: {
-            name: tagName,
-        },
-    });
+    const [tag] = await client
+        .delete(schema.tags)
+        .where(eq(schema.tags.name, tagName))
+        .returning();
     return tag;
 };
 
 export const updateTagAction = async (oldName: string, newName: string) => {
-    const updatedTag = await prisma.$transaction(async (tx) => {
+    const updatedTag = await client.transaction(async (tx) => {
         // First check if the new name already exists
-        const existingTag = await tx.tag.findUnique({
-            where: { name: newName }
-        });
+        const [existingTag] = await tx
+            .select()
+            .from(schema.tags)
+            .where(eq(schema.tags.name, newName));
 
         if (existingTag) {
             throw new Error('Tag with this name already exists');
         }
 
-        // Get all memos that have the old tag
-        const memosWithOldTag = await tx.memo.findMany({
-            where: {
-                tags: {
-                    some: {
-                        name: oldName
-                    }
-                },
-                deleted_at: null
-            },
-            include: {
-                tags: true
-            }
-        });
+        // Get the old tag
+        const [oldTag] = await tx
+            .select()
+            .from(schema.tags)
+            .where(eq(schema.tags.name, oldName));
 
-        // Delete the old tag
-        await tx.tag.delete({
-            where: { name: oldName }
-        });
+        if (!oldTag) {
+            throw new Error('Old tag not found');
+        }
 
-        // Create the new tag
-        const newTag = await tx.tag.create({
-            data: { name: newName }
-        });
-
-        // Update all memos to use the new tag
-        await Promise.all(
-            memosWithOldTag.map((memo) =>
-                tx.memo.update({
-                    where: { id: memo.id },
-                    data: {
-                        tags: {
-                            connect: [
-                                ...memo.tags
-                                    .filter((tag) => tag.name !== oldName)
-                                    .map((tag) => ({ id: tag.id })),
-                                { id: newTag.id }
-                            ]
-                        }
-                    }
-                })
-            )
-        );
+        // Update the tag name directly
+        const [newTag] = await tx
+            .update(schema.tags)
+            .set({ name: newName })
+            .where(eq(schema.tags.id, Number(oldTag.id)))
+            .returning();
 
         return newTag;
     });
@@ -475,11 +625,13 @@ export const updateTagAction = async (oldName: string, newName: string) => {
 };
 
 // 手动触发标签重新生成（同步版本，用于用户主动触发）
-export const updateMemoTagsAction = async (memoId: string) => {
+export const updateMemoTagsAction = async (memoId: number) => {
     try {
-        const memo = await prisma.memo.findUnique({
-            where: { id: memoId, deleted_at: null }
-        });
+        const [memo] = await client
+            .select()
+            .from(schema.memos)
+            .where(and(eq(schema.memos.id, Number(memoId)), isNull(schema.memos.deletedAt)));
+        
         if (!memo) {
             console.error(`Memo with id ${memoId} not found.`);
             return null;
@@ -494,16 +646,32 @@ export const updateMemoTagsAction = async (memoId: string) => {
         const tagNames = await generateTags(memo.content);
 
         if (tagNames && tagNames.length > 0) {
-            await prisma.memo.update({
-                where: { id: memoId },
-                data: {
-                    tags: {
-                        set: [],
-                        connectOrCreate: tagNames.map((name: string) => ({
-                            where: { name },
-                            create: { name }
-                        }))
+            await client.transaction(async (tx) => {
+                // 删除现有的标签关联
+                await tx
+                    .delete(schema.memoTags)
+                    .where(eq(schema.memoTags.memoId, memoId));
+
+                // 为每个标签创建或查找，然后关联
+                for (const tagName of tagNames) {
+                    let [tag] = await tx
+                        .select()
+                        .from(schema.tags)
+                        .where(eq(schema.tags.name, tagName));
+                    
+                    if (!tag) {
+                        [tag] = await tx
+                            .insert(schema.tags)
+                            .values({ name: tagName })
+                            .returning();
                     }
+
+                    await tx
+                        .insert(schema.memoTags)
+                        .values({
+                            memoId: memoId,
+                            tagId: tag.id
+                        });
                 }
             });
         }
@@ -515,15 +683,27 @@ export const updateMemoTagsAction = async (memoId: string) => {
     }
 };
 
-export const regenerateMemeTags = async (memoId: string) => {
+export const regenerateMemeTags = async (memoId: number) => {
     try {
-        const memo = await prisma.memo.findUnique({
-            where: { id: memoId, deleted_at: null },
-            include: {
-                tags: true, // include existing tags
-                link: true,
-            },
-        });
+        const [memo] = await client
+            .select({
+                id: schema.memos.id,
+                content: schema.memos.content,
+                images: schema.memos.images,
+                createdAt: schema.memos.createdAt,
+                updatedAt: schema.memos.updatedAt,
+                deletedAt: schema.memos.deletedAt,
+                link: {
+                    id: schema.links.id,
+                    url: schema.links.link,
+                    text: schema.links.text,
+                    memoId: schema.links.memoId
+                }
+            })
+            .from(schema.memos)
+            .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
+            .where(and(eq(schema.memos.id, Number(memoId)), isNull(schema.memos.deletedAt)));
+        
         if (!memo) {
             console.error(`Memo with id ${memoId} not found.`);
             return null;
@@ -537,22 +717,45 @@ export const regenerateMemeTags = async (memoId: string) => {
 
         const tagNames = await generateTags(memo.content);
 
-        const updatedMemo = await prisma.memo.update({
-            where: { id: memoId },
-            data: {
-                tags: {
-                    set: [], // Disconnect existing tags first
-                    connectOrCreate: tagNames.map((name: string) => ({
-                        where: { name },
-                        create: { name }
-                    }))
+        const updatedTags = await client.transaction(async (tx) => {
+            // 删除现有的标签关联
+            await tx
+                .delete(schema.memoTags)
+                .where(eq(schema.memoTags.memoId, memoId));
+
+            const tags = [];
+            // 为每个标签创建或查找，然后关联
+            for (const tagName of tagNames) {
+                let [tag] = await tx
+                    .select()
+                    .from(schema.tags)
+                    .where(eq(schema.tags.name, tagName));
+                
+                if (!tag) {
+                    [tag] = await tx
+                        .insert(schema.tags)
+                        .values({ name: tagName })
+                        .returning();
                 }
-            },
-            include: {
-                tags: true,
-                link: true
+
+                await tx
+                    .insert(schema.memoTags)
+                    .values({
+                        memoId: memoId,
+                        tagId: tag.id
+                    });
+                
+                tags.push(tag);
             }
+            return tags;
         });
+
+        const updatedMemo = {
+            ...memo,
+            tags: updatedTags,
+            link: memo.link?.id ? memo.link : null
+        };
+        
         console.log(`Tags updated for memo: ${memoId}`, tagNames);
         return updatedMemo;
 
@@ -565,29 +768,22 @@ export const regenerateMemeTags = async (memoId: string) => {
 // 查询关联数量少于指定阈值的标签
 export const getUnderUsedTagsAction = async (threshold: number = 10) => {
     try {
-        const tagsWithCount = await prisma.tag.findMany({
-            include: {
-                _count: {
-                    select: {
-                        memos: {
-                            where: {
-                                deleted_at: null
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        const tagsWithCount = await client
+            .select({
+                id: schema.tags.id,
+                name: schema.tags.name,
+                memoCount: count(schema.memoTags.memoId)
+            })
+            .from(schema.tags)
+            .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
+            .leftJoin(schema.memos, and(
+                eq(schema.memoTags.memoId, schema.memos.id),
+                isNull(schema.memos.deletedAt)
+            ))
+            .groupBy(schema.tags.id, schema.tags.name)
+            .having(sql`count(${schema.memoTags.memoId}) < ${threshold}`);
 
-        // 筛选出关联数量少于阈值的标签
-        const underUsedTags = tagsWithCount
-            .filter(tag => tag._count.memos < threshold)
-            .map(tag => ({
-                ...tag,
-                memoCount: tag._count.memos
-            }));
-
-        return underUsedTags;
+        return tagsWithCount;
     } catch (error) {
         console.error("获取低频标签失败:", error);
         throw error;
@@ -597,70 +793,25 @@ export const getUnderUsedTagsAction = async (threshold: number = 10) => {
 // 批量删除低频标签
 export const deleteUnderUsedTagsAction = async (threshold: number = 10) => {
     try {
-        const result = await prisma.$transaction(async (tx) => {
-            // 1. 查询需要删除的标签
-            const tagsToDelete = await tx.tag.findMany({
-                include: {
-                    _count: {
-                        select: {
-                            memos: {
-                                where: {
-                                    deleted_at: null
-                                }
-                            }
-                        }
-                    }
-                },
-                where: {
-                    memos: {
-                        every: {
-                            OR: [
-                                { deleted_at: { not: null } }, // 已删除的memo
-                                {
-                                    // 计算关联的有效memo数量 < threshold
-                                    id: {
-                                        in: await tx.tag.findMany({
-                                            include: {
-                                                _count: {
-                                                    select: {
-                                                        memos: {
-                                                            where: {
-                                                                deleted_at: null
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }).then(tags => 
-                                            tags
-                                                .filter(tag => tag._count.memos < threshold)
-                                                .map(tag => tag.id)
-                                        )
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            });
+        const result = await client.transaction(async (tx) => {
+            // 查询所有标签及其关联的备忘录数量
+            const tagsWithCount = await tx
+                .select({
+                    id: schema.tags.id,
+                    name: schema.tags.name,
+                    memoCount: count(schema.memoTags.memoId)
+                })
+                .from(schema.tags)
+                .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
+                .leftJoin(schema.memos, and(
+                    eq(schema.memoTags.memoId, schema.memos.id),
+                    isNull(schema.memos.deletedAt)
+                ))
+                .groupBy(schema.tags.id, schema.tags.name);
 
-            // 更简单的查询方式
-            const allTags = await tx.tag.findMany({
-                include: {
-                    _count: {
-                        select: {
-                            memos: {
-                                where: {
-                                    deleted_at: null
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-
-            const tagsToDeleteIds = allTags
-                .filter(tag => tag._count.memos < threshold)
+            // 筛选出关联数量少于阈值的标签
+            const tagsToDeleteIds = tagsWithCount
+                .filter(tag => tag.memoCount < threshold)
                 .map(tag => tag.id);
 
             if (tagsToDeleteIds.length === 0) {
@@ -670,26 +821,22 @@ export const deleteUnderUsedTagsAction = async (threshold: number = 10) => {
                 };
             }
 
-            // 2. 记录要删除的标签信息
-            const deletedTagsInfo = allTags
+            // 记录要删除的标签信息
+            const deletedTagsInfo = tagsWithCount
                 .filter(tag => tagsToDeleteIds.includes(tag.id))
                 .map(tag => ({
                     id: tag.id,
                     name: tag.name,
-                    memoCount: tag._count.memos
+                    memoCount: tag.memoCount
                 }));
 
-            // 3. 批量删除标签
-            const deleteResult = await tx.tag.deleteMany({
-                where: {
-                    id: {
-                        in: tagsToDeleteIds
-                    }
-                }
-            });
+            // 批量删除标签
+            await tx
+                .delete(schema.tags)
+                .where(inArray(schema.tags.id, tagsToDeleteIds));
 
             return {
-                deletedCount: deleteResult.count,
+                deletedCount: tagsToDeleteIds.length,
                 deletedTags: deletedTagsInfo
             };
         });

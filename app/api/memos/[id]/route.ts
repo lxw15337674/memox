@@ -94,7 +94,7 @@ export async function GET(
         }
 
         // 获取memo
-        const memo = await getMemoByIdAction(id);
+        const memo = await getMemoByIdAction(Number(id));
 
         if (!memo) {
             return NextResponse.json(
@@ -141,7 +141,7 @@ export async function PUT(
         }
 
         // 检查memo是否存在
-        const existingMemo = await getMemoByIdAction(id);
+        const existingMemo = await getMemoByIdAction(Number(id));
         if (!existingMemo) {
             return NextResponse.json(
                 createApiResponse(false, null, undefined, 'Memo不存在'),
@@ -163,13 +163,16 @@ export async function PUT(
         // 转换为Server Action需要的格式
         const updateData = {
             content: validatedData.content || existingMemo.content,
-            images: validatedData.images !== undefined ? validatedData.images : existingMemo.images,
-            link: validatedData.link !== undefined ? validatedData.link : (existingMemo.link || undefined),
+            images: validatedData.images !== undefined ? validatedData.images : (Array.isArray(existingMemo.images) ? existingMemo.images : []),
+            link: validatedData.link !== undefined ? validatedData.link : (existingMemo.link ? {
+                url: existingMemo.link.link,
+                text: existingMemo.link.text
+            } : undefined),
             tags: validatedData.tags || existingMemo.tags.map(tag => tag.name),
         };
 
         // 调用现有的更新函数
-        const updatedMemoId = await updateMemoAction(id, updateData);
+        const updatedMemoId = await updateMemoAction(Number(id), updateData);
 
         if (!updatedMemoId) {
             return NextResponse.json(
@@ -179,7 +182,7 @@ export async function PUT(
         }
 
         // 获取更新后的memo
-        const updatedMemo = await getMemoByIdAction(id);
+        const updatedMemo = await getMemoByIdAction(Number(id));
 
         return NextResponse.json(
             createApiResponse(true, updatedMemo, '更新memo成功'),
@@ -218,7 +221,7 @@ export async function DELETE(
         }
 
         // 检查memo是否存在
-        const existingMemo = await getMemoByIdAction(id);
+        const existingMemo = await getMemoByIdAction(Number(id));
         if (!existingMemo) {
             return NextResponse.json(
                 createApiResponse(false, null, undefined, 'Memo不存在'),
@@ -227,7 +230,7 @@ export async function DELETE(
         }
 
         // 调用现有的删除函数（软删除）
-        await deleteMemo(id);
+        await deleteMemo(Number(id));
 
         return NextResponse.json(
             createApiResponse(true, { id }, '删除memo成功'),

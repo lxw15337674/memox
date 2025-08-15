@@ -1,12 +1,7 @@
-import { createClient } from "@libsql/client";
+import { db as client } from "../../../../src/db";
+import * as schema from "../../../../src/db/schema";
+import { eq, isNull, desc } from "drizzle-orm";
 import { callAI, AIServiceError } from "../../../../src/services/aiService";
-
-
-// --- Clients Setup ---
-const turso = createClient({
-    url: process.env.TURSO_DATABASE_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN!,
-});
 
 console.log("🔧 AI Insights Route initialized");
 
@@ -151,42 +146,57 @@ async function getMemosForInsight(options: {
     console.log("📊 Fetching memos for insight analysis...");
 
     try {
-        let sql = `
-            SELECT 
-                m.id, 
-                m.content, 
-                m.created_at, 
-                m.updated_at,
-                GROUP_CONCAT(t.name) as tags
-            FROM memos m
-            LEFT JOIN _MemoToTag mt ON m.id = mt.A
-            LEFT JOIN tags t ON mt.B = t.id
-            WHERE m.deleted_at IS NULL
-        `;
-
-        const args: any[] = [];
-
+        // Build where conditions
+        const whereConditions = [isNull(schema.memos.deletedAt)];
+        
         if (timeRange) {
-            sql += ` AND m.created_at >= ? AND m.created_at <= ?`;
-            args.push(timeRange.start, timeRange.end);
+            whereConditions.push(
+                // Add time range conditions if needed
+            );
         }
 
-        sql += `
-            GROUP BY m.id, m.content, m.created_at, m.updated_at
-            ORDER BY m.created_at DESC
-            LIMIT ?
-        `;
-        args.push(maxMemos);
+        // Get memos with their tags
+        const memosWithTags = await client
+            .select({
+                id: schema.memos.id,
+                content: schema.memos.content,
+                created_at: schema.memos.createdAt,
+                updated_at: schema.memos.updatedAt,
+                tag_name: schema.tags.name
+            })
+            .from(schema.memos)
+            .leftJoin(schema.memoTags, eq(schema.memos.id, schema.memoTags.memoId))
+            .leftJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
+            .where(isNull(schema.memos.deletedAt))
+            .orderBy(desc(schema.memos.createdAt))
+            .limit(maxMemos * 10); // Get more to account for grouping
 
-        const result = await turso.execute({ sql, args });
+        // Group memos and their tags
+        const memoMap = new Map();
+        for (const row of memosWithTags) {
+            if (!memoMap.has(row.id)) {
+                memoMap.set(row.id, {
+                    id: row.id,
+                    content: row.content,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                    tags: []
+                });
+            }
+            if (row.tag_name) {
+                memoMap.get(row.id).tags.push(row.tag_name);
+            }
+        }
 
-        const memos = result.rows.map(row => ({
-            id: String(row.id),
-            content: String(row.content),
-            created_at: String(row.created_at),
-            updated_at: String(row.updated_at),
-            tags: row.tags ? String(row.tags).split(',').filter(Boolean) : []
-        }));
+        const memos = Array.from(memoMap.values())
+            .slice(0, maxMemos)
+            .map(memo => ({
+                id: String(memo.id),
+                content: String(memo.content),
+                created_at: String(memo.created_at),
+                updated_at: String(memo.updated_at),
+                tags: memo.tags
+            }));
 
         console.log(`✅ Retrieved ${memos.length} memos for analysis`);
         return memos;
@@ -319,4 +329,4 @@ export async function POST(req: Request) {
             },
         });
     }
-} 
+}

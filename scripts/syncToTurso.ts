@@ -67,26 +67,88 @@ async function syncMemoRelationsInTransaction(tx: Transaction, syncedMemos: any[
         return;
     }
 
-// 只同步已同步笔记的链接
-    const linksToSync = syncedMemos.map(memo => memo.link).filter(Boolean);
-    if (linksToSync.length > 0) {
-        const linkStatements = linksToSync.map(link => ({
-            sql: "INSERT INTO links (id, link, text, memo_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING;",
-            args: [link.id, link.url, link.text, link.memoId, link.createdAt.toISOString()],
-        }));
-        await tx.batch(linkStatements);
+    console.log(`    🔗 开始同步 ${syncedMemos.length} 条笔记的关联关系...`);
+
+    // 验证所有相关的 Memo 是否存在于目标数据库中
+    const memoIds = syncedMemos.map(memo => memo.id);
+    if (memoIds.length > 0) {
+        const existingMemos = await tx.execute({
+            sql: `SELECT id FROM memos WHERE id IN (${memoIds.map(() => '?').join(',')})`,
+            args: memoIds
+        });
+        const existingMemoIds = new Set(existingMemos.rows.map(row => row.id));
+        const missingMemoIds = memoIds.filter(id => !existingMemoIds.has(id));
+        
+        if (missingMemoIds.length > 0) {
+            console.warn(`    ⚠️ 发现 ${missingMemoIds.length} 个笔记在目标数据库中不存在:`, missingMemoIds);
+            // 过滤掉不存在的笔记
+            syncedMemos = syncedMemos.filter(memo => existingMemoIds.has(memo.id));
+        }
     }
 
-    // 只同步已同步笔记的标签关系
-    const relationStatements = syncedMemos.flatMap(memo =>
-        memo.tags.map((tag: any) => ({
-            sql: "INSERT INTO _MemoToTag (A, B) VALUES (?, ?) ON CONFLICT(A, B) DO NOTHING;",
-            args: [memo.id, tag.id],
-        }))
-    );
+    // 只同步已同步笔记的链接
+    const linksToSync = syncedMemos.map(memo => memo.link).filter(Boolean);
+    if (linksToSync.length > 0) {
+        console.log(`    📎 同步 ${linksToSync.length} 个链接...`);
+        const linkStatements = linksToSync.map(link => ({
+            sql: "INSERT INTO links (id, link, text, memo_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET link = excluded.link, text = excluded.text, memo_id = excluded.memo_id;",
+            args: [link.id, link.url, link.text, link.memoId, link.createdAt.toISOString()],
+        }));
+        try {
+            await tx.batch(linkStatements);
+            console.log(`    ✅ 链接同步完成`);
+        } catch (error) {
+            console.error(`    ❌ 链接同步失败:`, error);
+            // 记录具体失败的链接信息
+            linksToSync.forEach(link => {
+                console.error(`      - Link ID: ${link.id}, Memo ID: ${link.memoId}`);
+            });
+            throw error;
+        }
+    }
 
-    if (relationStatements.length > 0) {
-        await tx.batch(relationStatements);
+    // 验证所有相关的 Tag 是否存在于目标数据库中
+    const allTagIds = [...new Set(syncedMemos.flatMap(memo => memo.tags.map((tag: any) => tag.id)))];
+    if (allTagIds.length > 0) {
+        const existingTags = await tx.execute({
+            sql: `SELECT id FROM tags WHERE id IN (${allTagIds.map(() => '?').join(',')})`,
+            args: allTagIds
+        });
+        const existingTagIds = new Set(existingTags.rows.map(row => row.id));
+        const missingTagIds = allTagIds.filter(id => !existingTagIds.has(id));
+        
+        if (missingTagIds.length > 0) {
+            console.warn(`    ⚠️ 发现 ${missingTagIds.length} 个标签在目标数据库中不存在:`, missingTagIds);
+        }
+
+        // 只同步存在的标签关系
+        const relationStatements = syncedMemos.flatMap(memo =>
+            memo.tags
+                .filter((tag: any) => existingTagIds.has(tag.id))
+                .map((tag: any) => ({
+                    sql: "INSERT INTO _MemoToTag (A, B) VALUES (?, ?) ON CONFLICT(A, B) DO NOTHING;",
+                    args: [memo.id, tag.id],
+                }))
+        );
+
+        if (relationStatements.length > 0) {
+            console.log(`    🏷️ 同步 ${relationStatements.length} 个标签关系...`);
+            try {
+                await tx.batch(relationStatements);
+                console.log(`    ✅ 标签关系同步完成`);
+            } catch (error) {
+                console.error(`    ❌ 标签关系同步失败:`, error);
+                // 记录具体失败的关系信息
+                syncedMemos.forEach(memo => {
+                    memo.tags.forEach((tag: any) => {
+                        if (existingTagIds.has(tag.id)) {
+                            console.error(`      - Memo ID: ${memo.id}, Tag ID: ${tag.id}`);
+                        }
+                    });
+                });
+                throw error;
+            }
+        }
     }
 }
 
@@ -153,6 +215,9 @@ async function main() {
             // 首先，在事务中一次性同步所有标签。
             await syncAllTagsInTransaction(tx);
 
+            // 存储所有成功同步的笔记，用于后续关联关系同步
+            const successfullySyncedMemos: any[] = [];
+
             for (let i = 0; i < memosToSync.length; i += BATCH_SIZE) {
                 const batchMemos = memosToSync.slice(i, i + BATCH_SIZE);
                 const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
@@ -191,10 +256,22 @@ async function main() {
                         ],
                     };
                 });
-                await tx.batch(statements);
+                
+                try {
+                    await tx.batch(statements);
+                    // 只有成功同步的笔记才加入到后续关联关系同步列表
+                    successfullySyncedMemos.push(...batchMemos);
+                    console.log(`    ✅ 批次 ${batchNumber} 笔记同步成功`);
+                } catch (error) {
+                    console.error(`    ❌ 批次 ${batchNumber} 笔记同步失败:`, error);
+                    throw error;
+                }
+            }
 
-                console.log("    🔗 在事务中同步批次关联关系...");
-                await syncMemoRelationsInTransaction(tx, batchMemos);
+            // 在所有笔记同步完成后，再同步关联关系
+            if (successfullySyncedMemos.length > 0) {
+                console.log("🔗 开始同步所有笔记的关联关系...");
+                await syncMemoRelationsInTransaction(tx, successfullySyncedMemos);
             }
         }
 

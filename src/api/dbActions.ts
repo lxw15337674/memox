@@ -26,24 +26,7 @@ export const getRecordsActions = async (config: {
         ];
 
         if (sortDesc === Desc.RANDOM) {
-            // 1. 只查询符合条件的 ID 列表
-            const memoIds = await client
-                .select({ id: schema.memos.id })
-                .from(schema.memos)
-                .where(and(...whereConditions));
-            const total = memoIds.length;
-
-            // 2. 在应用层对 ID 进行洗牌
-            const shuffledIds = memoIds.map(m => m.id).sort(() => Math.random() - 0.5);
-
-            // 3. 根据分页获取当前页的 ID
-            const pageIds = shuffledIds.slice((page - 1) * page_size, page * page_size);
-
-            if (pageIds.length === 0) {
-                return { items: [], total };
-            }
-
-            // 4. 获取完整数据，并保持随机顺序
+            // 使用数据库原生RANDOM()函数进行随机排序
             const items = await client
                 .select({
                     id: schema.memos.id,
@@ -62,9 +45,24 @@ export const getRecordsActions = async (config: {
                 })
                 .from(schema.memos)
                 .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
-                .where(inArray(schema.memos.id, pageIds));
+                .where(and(...whereConditions))
+                .orderBy(sql`RANDOM()`)
+                .limit(page_size)
+                .offset((page - 1) * page_size);
 
-            // 5. 获取标签信息
+            // 获取总数（用于分页）
+            const totalResult = await client
+                .select({ count: count() })
+                .from(schema.memos)
+                .where(and(...whereConditions));
+            const total = totalResult[0]?.count || 0;
+
+            if (items.length === 0) {
+                return { items: [], total };
+            }
+
+            // 获取标签信息
+            const memoIds = items.map(item => item.id);
             const tagsData = await client
                 .select({
                     memoId: schema.memoTags.memoId,
@@ -74,7 +72,7 @@ export const getRecordsActions = async (config: {
                 })
                 .from(schema.memoTags)
                 .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
-                .where(inArray(schema.memoTags.memoId, pageIds));
+                .where(inArray(schema.memoTags.memoId, memoIds));
 
             // 组装数据
             const itemsWithTags = items.map(item => {
@@ -95,10 +93,8 @@ export const getRecordsActions = async (config: {
                 };
             });
 
-            const sortedItems = itemsWithTags.sort((a, b) => pageIds.indexOf(a.id) - pageIds.indexOf(b.id));
-
             return {
-                items: sortedItems as Note[],
+                items: itemsWithTags as Note[],
                 total,
             };
         }

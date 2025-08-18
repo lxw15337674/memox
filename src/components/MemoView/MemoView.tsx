@@ -36,18 +36,14 @@ MemoContent.displayName = 'MemoContent';
 const MemoView = ({
   tags,
   content,
-  images = '[]',
+  images = [],
   link,
   createdAt,
   updatedAt,
   id,
 }: Note) => {
   const parsedImages = useMemo(() => {
-    try {
-      return JSON.parse(images || '[]');
-    } catch {
-      return [];
-    }
+    return images || [];
   }, [images]);
   const [isEdited, setIsEdited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -62,14 +58,14 @@ const MemoView = ({
   const currentMemo: Note = useMemo(() => ({
     id,
     content,
-    images,
+    images: parsedImages,
     link,
     createdAt,
     updatedAt,
     deletedAt: null, // This memo is visible, so it's not deleted
     embedding: null,
     tags
-  }), [id, content, images, link, createdAt, updatedAt, tags]);
+  }), [id, content, parsedImages, link, createdAt, updatedAt, tags]);
 
   const { runAsync: updateRecord } = useRequest(updateMemoAction, {
     manual: true,
@@ -114,6 +110,7 @@ const MemoView = ({
       onCancel={handleCancel}
     />
   }
+  console.log(currentMemo, parsedImages) 
   return (
     <Card id={`memo-${id}`} className={`p-3 relative h-full flex flex-col ${isLoading ? 'opacity-70' : ''}`}>
       <div className="flex justify-between items-start flex-1">

@@ -11,13 +11,17 @@
     "prestart": "next build",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "migrate:turso": "bun scripts/migrateToTurso.ts",
+    "embedding:generate": "npx tsx scripts/generateEmbeddings.ts",
+    "embedding:check": "npnpxx tsx scripts/generateEmbeddings.ts check"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.3.24",
     "@github/relative-time-element": "^4.4.8",
     "@libsql/client": "^0.15.10",
-
+    "@prisma/client": "^6.14.0",
+    "@prisma/extension-accelerate": "^2.0.2",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-avatar": "^1.1.10",
     "@radix-ui/react-checkbox": "^1.3.2",
@@ -53,7 +57,7 @@
     "next-themes": "^0.4.6",
     "openai": "^5.12.2",
     "pinyin-pro": "^3.27.0",
-
+    "prisma": "^6.14.0",
     "react": "^19.1.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^19.1.1",

@@ -1,9 +1,19 @@
 import { LinkType } from "../components/Editor/LinkAction";
-import type { Memo, Tag, Link, NewTag, NewLink } from "../db/schema";
-import type { NewMemo as DrizzleNewMemo } from "../db/schema";
+import type { Tag, Link, NewTag, NewLink } from "../db/schema";
 
 // 导出数据库类型（除了 NewMemo，我们会自定义）
-export type { Memo, Tag, Link, NewTag, NewLink };
+export type { Tag, Link, NewTag, NewLink };
+
+// 前端使用的 Memo 类型，images 已经被解析为数组
+export interface Memo {
+  id: string;
+  content: string;
+  images: string[];  // 在 API 层面已经被解析为数组
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  embedding: ArrayBuffer | null;
+}
 
 // 扩展 Memo 类型以便与前端兼容
 export interface MemoWithTags extends Memo {

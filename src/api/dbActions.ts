@@ -5,6 +5,7 @@ import { NewMemo as DrizzleNewMemo } from '../db/schema';
 import { db as client } from '../db';
 import * as schema from '../db/schema';
 import { generateTags } from './aiActions';
+import { generateEmbedding, embeddingToBuffer } from '../services/embeddingService';
 import { waitUntil } from '@vercel/functions';
 import { eq, and, desc, asc, count, isNull, isNotNull, gte, lt, inArray, like, sql } from 'drizzle-orm';
 import { Desc } from '../store/filter';
@@ -198,8 +199,11 @@ export const createNewMemo = async (newMemo: NewMemo) => {
         const memo = await client.transaction(async (tx) => {
             // 创建memo
             const memoData = {
+                id: crypto.randomUUID(),
                 content,
                 images: JSON.stringify(images || []),
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
             } satisfies typeof schema.memos.$inferInsert;
             const [newMemo] = await tx
                 .insert(schema.memos)
@@ -218,7 +222,11 @@ export const createNewMemo = async (newMemo: NewMemo) => {
                 if (!tag) {
                     [tag] = await tx
                         .insert(schema.tags)
-                        .values({ name: tagName })
+                        .values({ 
+                            id: crypto.randomUUID(),
+                            name: tagName,
+                            createdAt: new Date().toISOString()
+                        })
                         .returning();
                 }
 
@@ -239,9 +247,11 @@ export const createNewMemo = async (newMemo: NewMemo) => {
                 [memoLink] = await tx
                     .insert(schema.links)
                     .values({
+                        id: crypto.randomUUID(),
                         link: link.url,
                         text: link.text,
-                        memoId: newMemo.id
+                        memoId: newMemo.id,
+                        createdAt: new Date().toISOString()
                     })
                     .returning();
             }
@@ -254,9 +264,13 @@ export const createNewMemo = async (newMemo: NewMemo) => {
             };
         });
         
-        // 异步生成AI标签，不阻塞响应
+        // 异步生成AI标签和embedding，不阻塞响应
         console.log(`[Server Action] 为新创建的 memo ${memo.id} 启动后台AI标签生成`);
         waitUntil(regenerateMemeTags(memo.id));
+        
+        // 异步生成embedding，不阻塞响应
+        console.log(`[Server Action] 为新创建的 memo ${memo.id} 启动后台embedding生成`);
+        waitUntil(generateMemoEmbedding(memo.id, memo.content));
 
         return memo;
     } catch (error) {
@@ -265,12 +279,12 @@ export const createNewMemo = async (newMemo: NewMemo) => {
     }
 };
 
-export const deleteMemo = async (id: number) => {
+export const deleteMemo = async (id: string) => {
     try {
         await client
             .update(schema.memos)
             .set({ deletedAt: new Date().toISOString() })
-            .where(eq(schema.memos.id, Number(id)));
+            .where(eq(schema.memos.id, id));
         console.log("软删除成功");
     } catch (error) {
         console.error("软删除失败:", error);
@@ -278,7 +292,7 @@ export const deleteMemo = async (id: number) => {
     }
 };
 
-export const getMemoByIdAction = async (id: number) => {
+export const getMemoByIdAction = async (id: string) => {
     try {
         const [memo] = await client
             .select({
@@ -298,7 +312,7 @@ export const getMemoByIdAction = async (id: number) => {
             })
             .from(schema.memos)
             .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
-            .where(and(eq(schema.memos.id, Number(id)), isNull(schema.memos.deletedAt)));
+            .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
 
         if (!memo) return null;
 
@@ -332,7 +346,7 @@ export const getMemoByIdAction = async (id: number) => {
 };
 
 // 快速更新memo，不进行AI标签生成（适用于频繁保存场景）
-export const updateMemoQuickAction = async (id: number, newMemo: NewMemo) => {
+export const updateMemoQuickAction = async (id: string, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
 
@@ -341,7 +355,7 @@ export const updateMemoQuickAction = async (id: number, newMemo: NewMemo) => {
             const [existingMemo] = await tx
                 .select({ id: schema.memos.id })
                 .from(schema.memos)
-                .where(and(eq(schema.memos.id, Number(id)), isNull(schema.memos.deletedAt)));
+                .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
 
             if (!existingMemo) {
                 throw new Error('Memo not found');
@@ -355,7 +369,7 @@ export const updateMemoQuickAction = async (id: number, newMemo: NewMemo) => {
                     images: JSON.stringify(images || []),
                     updatedAt: new Date().toISOString()
                 })
-                .where(eq(schema.memos.id, Number(id)));
+                .where(eq(schema.memos.id, id));
 
             // 处理链接
             if (link) {
@@ -368,9 +382,11 @@ export const updateMemoQuickAction = async (id: number, newMemo: NewMemo) => {
                 await tx
                     .insert(schema.links)
                     .values({
+                        id: crypto.randomUUID(),
                         link: link.url,
                         text: link.text,
-                        memoId: id
+                        memoId: id,
+                        createdAt: new Date().toISOString()
                     });
             } else {
                 // 如果没有链接，删除现有链接
@@ -390,7 +406,7 @@ export const updateMemoQuickAction = async (id: number, newMemo: NewMemo) => {
 };
 
 // 完整更新memo，包含AI标签生成（适用于完成编辑后的最终保存）
-export const updateMemoAction = async (id: number, newMemo: NewMemo) => {
+export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
 
@@ -400,7 +416,7 @@ export const updateMemoAction = async (id: number, newMemo: NewMemo) => {
             const [existingMemo] = await tx
                 .select({ id: schema.memos.id })
                 .from(schema.memos)
-                .where(and(eq(schema.memos.id, Number(id)), isNull(schema.memos.deletedAt)));
+                .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
 
             if (!existingMemo) {
                 throw new Error('Memo not found');
@@ -414,7 +430,7 @@ export const updateMemoAction = async (id: number, newMemo: NewMemo) => {
                     images: JSON.stringify(images || []),
                     updatedAt: new Date().toISOString()
                 })
-                .where(eq(schema.memos.id, Number(id)));
+                .where(eq(schema.memos.id, id));
 
             // 处理链接
             if (link) {
@@ -427,9 +443,11 @@ export const updateMemoAction = async (id: number, newMemo: NewMemo) => {
                 await tx
                     .insert(schema.links)
                     .values({
+                        id: crypto.randomUUID(),
                         link: link.url,
                         text: link.text,
-                        memoId: id
+                        memoId: id,
+                        createdAt: new Date().toISOString()
                     });
             } else {
                 // 如果没有链接，删除现有链接
@@ -443,6 +461,9 @@ export const updateMemoAction = async (id: number, newMemo: NewMemo) => {
 
         // 异步处理标签生成和更新 - 不阻塞主响应
         waitUntil(regenerateMemeTags(id));
+        
+        // 异步生成新的embedding - 不阻塞主响应
+        waitUntil(generateMemoEmbedding(id, content));
 
         // 立即返回更新结果，不等待标签生成
         return id;
@@ -611,7 +632,7 @@ export const updateTagAction = async (oldName: string, newName: string) => {
         const [newTag] = await tx
             .update(schema.tags)
             .set({ name: newName })
-            .where(eq(schema.tags.id, Number(oldTag.id)))
+            .where(eq(schema.tags.id, oldTag.id))
             .returning();
 
         return newTag;
@@ -621,12 +642,12 @@ export const updateTagAction = async (oldName: string, newName: string) => {
 };
 
 // 手动触发标签重新生成（同步版本，用于用户主动触发）
-export const updateMemoTagsAction = async (memoId: number) => {
+export const updateMemoTagsAction = async (memoId: string) => {
     try {
         const [memo] = await client
             .select()
             .from(schema.memos)
-            .where(and(eq(schema.memos.id, Number(memoId)), isNull(schema.memos.deletedAt)));
+            .where(and(eq(schema.memos.id, memoId), isNull(schema.memos.deletedAt)));
         
         if (!memo) {
             console.error(`Memo with id ${memoId} not found.`);
@@ -658,7 +679,11 @@ export const updateMemoTagsAction = async (memoId: number) => {
                     if (!tag) {
                         [tag] = await tx
                             .insert(schema.tags)
-                            .values({ name: tagName })
+                            .values({ 
+                                id: crypto.randomUUID(),
+                                name: tagName,
+                                createdAt: new Date().toISOString()
+                            })
                             .returning();
                     }
 
@@ -679,7 +704,7 @@ export const updateMemoTagsAction = async (memoId: number) => {
     }
 };
 
-export const regenerateMemeTags = async (memoId: number) => {
+export const regenerateMemeTags = async (memoId: string) => {
     try {
         const [memo] = await client
             .select({
@@ -698,7 +723,7 @@ export const regenerateMemeTags = async (memoId: number) => {
             })
             .from(schema.memos)
             .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
-            .where(and(eq(schema.memos.id, Number(memoId)), isNull(schema.memos.deletedAt)));
+            .where(and(eq(schema.memos.id, memoId), isNull(schema.memos.deletedAt)));
         
         if (!memo) {
             console.error(`Memo with id ${memoId} not found.`);
@@ -730,7 +755,11 @@ export const regenerateMemeTags = async (memoId: number) => {
                 if (!tag) {
                     [tag] = await tx
                         .insert(schema.tags)
-                        .values({ name: tagName })
+                        .values({ 
+                            id: crypto.randomUUID(),
+                            name: tagName,
+                            createdAt: new Date().toISOString()
+                        })
                         .returning();
                 }
 
@@ -842,6 +871,38 @@ export const deleteUnderUsedTagsAction = async (threshold: number = 10) => {
     } catch (error) {
         console.error("删除低频标签失败:", error);
         throw error;
+    }
+};
+
+/**
+ * 异步生成memo的embedding并保存到数据库
+ * @param memoId memo的ID
+ * @param content memo的内容
+ */
+export const generateMemoEmbedding = async (memoId: string, content: string) => {
+    try {
+        // 检查内容是否为空
+        if (!content || content.trim().length === 0) {
+            console.warn(`[Embedding] Memo ${memoId} 内容为空，跳过embedding生成`);
+            return;
+        }
+
+        console.log(`[Embedding] 开始为 memo ${memoId} 生成embedding...`);
+        
+        // 生成embedding
+        const embedding = await generateEmbedding(content.trim());
+        const embeddingBuffer = embeddingToBuffer(embedding);
+        // 保存到数据库
+        await client
+            .update(schema.memos)
+            .set({ embedding: embeddingBuffer })
+            .where(eq(schema.memos.id, memoId));
+            
+        console.log(`[Embedding] Memo ${memoId} 的embedding生成并保存成功`);
+    } catch (error) {
+        console.error(`[Embedding] Memo ${memoId} 的embedding生成失败:`, error);
+        // 不抛出错误，避免影响主流程
+        // 可以考虑将失败的memo记录到队列中，供后续重试
     }
 };
 

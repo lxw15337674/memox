@@ -99,11 +99,11 @@ const MemoView = ({
 
   if (isEdited) {
     const editorLink = link ? {
-      url: link.link,
+      link: link.link,
       text: link.text,
       id: String(link.id),
       memoId: String(link.memoId),
-      createdAt: new Date(link.createdAt)
+      createdAt: link.createdAt
     } : undefined;
     
     return <Editor

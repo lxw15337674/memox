@@ -41,11 +41,11 @@ CREATE TABLE tags (
 );
 
 CREATE TABLE _MemoToTag (
-    A TEXT NOT NULL,
-    B TEXT NOT NULL,
-    FOREIGN KEY(A) REFERENCES memos(id) ON DELETE CASCADE,
-    FOREIGN KEY(B) REFERENCES tags(id) ON DELETE CASCADE,
-    PRIMARY KEY (A, B)
+    memo_id TEXT NOT NULL,
+    tag_id TEXT NOT NULL,
+    FOREIGN KEY(memo_id) REFERENCES memos(id) ON DELETE CASCADE,
+    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (memo_id, tag_id)
 );
 
 -- 3. 用新的、正确的语法创建向量索引

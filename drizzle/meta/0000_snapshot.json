@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1d9630e8-883c-45a6-9d29-e9c2e99a5953",
+  "id": "28206471-38dd-4a4f-80a2-fa5dbec9711a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "links": {
@@ -9,10 +9,10 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": true
+          "autoincrement": false
         },
         "link": {
           "name": "link",
@@ -30,7 +30,7 @@
         },
         "memo_id": {
           "name": "memo_id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -40,8 +40,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(datetime('now'))"
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -68,16 +67,16 @@
     "_MemoToTag": {
       "name": "_MemoToTag",
       "columns": {
-        "memoId": {
-          "name": "memoId",
-          "type": "integer",
+        "memo_id": {
+          "name": "memo_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "tagId": {
-          "name": "tagId",
-          "type": "integer",
+        "tag_id": {
+          "name": "tag_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -87,14 +86,14 @@
         "memo_tags_memo_id_idx": {
           "name": "memo_tags_memo_id_idx",
           "columns": [
-            "memoId"
+            "memo_id"
           ],
           "isUnique": false
         },
         "memo_tags_tag_id_idx": {
           "name": "memo_tags_tag_id_idx",
           "columns": [
-            "tagId"
+            "tag_id"
           ],
           "isUnique": false
         }
@@ -109,10 +108,10 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": true
+          "autoincrement": false
         },
         "content": {
           "name": "content",
@@ -134,16 +133,14 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(datetime('now'))"
+          "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(datetime('now'))"
+          "autoincrement": false
         },
         "deleted_at": {
           "name": "deleted_at",
@@ -217,10 +214,10 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": true
+          "autoincrement": false
         },
         "name": {
           "name": "name",
@@ -234,8 +231,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(datetime('now'))"
+          "autoincrement": false
         }
       },
       "indexes": {

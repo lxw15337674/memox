@@ -27,7 +27,7 @@ async function getMemoEmbedding(memoId: string): Promise<number[]> {
             })
             .from(schema.memos)
             .where(and(
-                eq(schema.memos.id, Number(memoId)),
+                eq(schema.memos.id, memoId),
                 isNull(schema.memos.deletedAt)
             ));
 
@@ -64,7 +64,7 @@ async function getMemoEmbedding(memoId: string): Promise<number[]> {
         db
             .update(schema.memos)
             .set({ embedding: embeddingBuffer })
-            .where(eq(schema.memos.id, Number(memoId)))
+            .where(eq(schema.memos.id, memoId))
             .catch(saveError => {
                 console.warn(`⚠️ Failed to save new embedding for memo ${memoId} in background:`, saveError);
             });
@@ -97,7 +97,7 @@ async function findRelatedMemos(memoId: string, queryVectorBuffer: Buffer): Prom
             })
             .from(schema.memos)
             .where(and(
-                ne(schema.memos.id, Number(memoId)),
+                ne(schema.memos.id, memoId),
                 isNull(schema.memos.deletedAt)
             ))
             .orderBy(schema.memos.createdAt)

@@ -116,7 +116,7 @@ const useMemoStore = create<MemoStore>()(
       },
       // 删除某条数据
       removeMemo: (pageId: string) => {
-        const index = get().memos.findIndex((item) => item.id === Number(pageId));
+        const index = get().memos.findIndex((item) => item.id === pageId);
         set((state) => {
           state.memos.splice(index, 1);
           state.databases.total = Math.max(0, state.databases.total - 1);
@@ -127,16 +127,16 @@ const useMemoStore = create<MemoStore>()(
       updateMemo: (id: string, memo?: Note) => {
         if (memo) {
           set((state) => {
-            const index = state.memos.findIndex((item) => item.id === Number(id));
+            const index = state.memos.findIndex((item) => item.id === id);
             if (index !== -1) {
               state.memos[index] = { ...memo, link: memo.link || undefined };
             }
           });
           return;
         }
-        getMemoByIdAction(Number(id)).then((data) => {
+        getMemoByIdAction(id).then((data) => {
           set((state) => {
-            const index = state.memos.findIndex((item) => item.id === Number(id));
+            const index = state.memos.findIndex((item) => item.id === id);
             if (index !== -1 && data) {
               state.memos[index] = { ...data, link: data.link || undefined };
             }
@@ -146,7 +146,7 @@ const useMemoStore = create<MemoStore>()(
       // 更新memo的标签（用于异步标签生成完成后）
       updateMemoTags: (id: string, tags: Tag[]) => {
         set((state) => {
-          const index = state.memos.findIndex((item) => item.id === Number(id));
+          const index = state.memos.findIndex((item) => item.id === id);
           if (index !== -1) {
             state.memos[index].tags = tags;
           }

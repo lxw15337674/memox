@@ -2,9 +2,10 @@ import { drizzle } from 'drizzle-orm/libsql';
 import { createClient } from '@libsql/client';
 import * as schema from './schema';
 
-// Create the database client
+// Create the database client - use Turso if credentials are available, otherwise local
 const client = createClient({
-  url: 'file:./local.db',
+  url: process.env.TURSO_DATABASE_URL || 'file:./local.db',
+  authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
 // Create the drizzle instance

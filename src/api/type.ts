@@ -1,5 +1,23 @@
-import { Memo, Tag, Link } from "../db/schema";
 import { LinkType } from "../components/Editor/LinkAction";
+import type { Memo, Tag, Link, NewTag, NewLink } from "../db/schema";
+import type { NewMemo as DrizzleNewMemo } from "../db/schema";
+
+// 导出数据库类型（除了 NewMemo，我们会自定义）
+export type { Memo, Tag, Link, NewTag, NewLink };
+
+// 扩展 Memo 类型以便与前端兼容
+export interface MemoWithTags extends Memo {
+  tags: Tag[];
+  link?: Link | null;
+}
+
+// 自定义 NewMemo 接口，用于前端创建 memo
+export interface NewMemo {
+  content: string;
+  images?: string[];
+  link?: LinkType;
+  tags?: string[];
+}
 
 interface Filter {
   conjunction?: "and" | "or";
@@ -34,14 +52,6 @@ export type Note = Memo & {
   link?: Link;
 }
 
-import { NewMemo as DrizzleNewMemo } from "../db/schema";
-
-export interface NewMemo {
-  content: string;
-  images?: string[];
-  link?: LinkType
-  tags?: string[];
-}
 export interface TagWithCount extends Tag {
   memoCount: number;
 }

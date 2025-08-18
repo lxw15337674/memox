@@ -86,6 +86,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 /**
  * 将嵌入向量转换为Buffer格式（用于数据库存储）
+ * @deprecated 对于 Turso，应该直接存储 number[] 数组
  */
 export function embeddingToBuffer(embedding: number[]): Buffer {
     if (!embedding || !Array.isArray(embedding)) {
@@ -96,6 +97,7 @@ export function embeddingToBuffer(embedding: number[]): Buffer {
 
 /**
  * 将Buffer转换为嵌入向量格式
+ * @deprecated 对于 Turso，应该直接使用 number[] 数组
  */
 export function bufferToEmbedding(buffer: Buffer): number[] {
     if (!buffer || !(buffer instanceof Buffer)) {
@@ -112,6 +114,53 @@ export function bufferToEmbedding(buffer: Buffer): number[] {
             { originalError: error }
         );
     }
+}
+
+/**
+ * 为 Turso 准备嵌入向量数据
+ * 直接返回 number[] 数组，让 schema 的 toDriver 处理 vector32() 转换
+ */
+export function prepareEmbeddingForTurso(embedding: number[]): number[] {
+    if (!embedding || !Array.isArray(embedding)) {
+        throw new EmbeddingServiceError('INVALID_INPUT', '嵌入向量格式无效');
+    }
+    return embedding;
+}
+
+/**
+ * 从 Turso 解析嵌入向量数据
+ */
+export function parseEmbeddingFromTurso(data: any): number[] {
+    console.log(`🔍 Parsing embedding data type: ${typeof data}, isArray: ${Array.isArray(data)}`);
+    
+    // 如果已经是 number[] 数组，直接返回
+    if (Array.isArray(data)) {
+        console.log(`✅ Data is already array with length: ${data.length}`);
+        return data;
+    }
+    
+    // 如果是 Buffer，尝试转换
+    if (data instanceof Buffer) {
+        console.log(`🔄 Converting Buffer to embedding, buffer length: ${data.length}`);
+        return bufferToEmbedding(data);
+    }
+    
+    // 如果是字符串，尝试解析 JSON
+    if (typeof data === 'string') {
+        try {
+            console.log(`🔄 Parsing JSON string: ${data.substring(0, 100)}...`);
+            const parsed = JSON.parse(data);
+            if (Array.isArray(parsed)) {
+                console.log(`✅ Parsed JSON array with length: ${parsed.length}`);
+                return parsed;
+            }
+        } catch (e) {
+            console.warn(`⚠️ Failed to parse JSON string:`, e);
+        }
+    }
+    
+    console.error(`❌ Unable to parse embedding data:`, data);
+    throw new EmbeddingServiceError('INVALID_INPUT', '无法解析嵌入向量数据');
 }
 
 /**
@@ -137,6 +186,12 @@ export function calculateCosineSimilarity(vecA: number[], vecB: number[]): numbe
         );
     }
 
+    // 检查向量是否包含无效值
+    if (vecA.some(v => !isFinite(v)) || vecB.some(v => !isFinite(v))) {
+        console.warn('⚠️ Vector contains non-finite values (NaN or Infinity)');
+        return 0;
+    }
+
     let dotProduct = 0;
     let normA = 0;
     let normB = 0;
@@ -150,10 +205,19 @@ export function calculateCosineSimilarity(vecA: number[], vecB: number[]): numbe
     const magnitude = Math.sqrt(normA) * Math.sqrt(normB);
 
     if (magnitude === 0) {
+        console.warn('⚠️ Vector magnitude is zero, returning similarity 0');
         return 0;
     }
 
-    return dotProduct / magnitude;
+    const similarity = dotProduct / magnitude;
+    
+    // 确保结果是有效数字
+    if (!isFinite(similarity)) {
+        console.warn('⚠️ Calculated similarity is not finite:', similarity);
+        return 0;
+    }
+
+    return similarity;
 }
 
 // 导出配置常量

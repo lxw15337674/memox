@@ -1,7 +1,25 @@
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, blob, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, blob, index, customType } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 import { desc } from 'drizzle-orm';
+
+const float32Array = customType<{
+  data: number[];                // TS 端类型
+  config: { dimensions: number };// 必须传维度
+  configRequired: true;
+  driverData: Buffer;            // SQLite 存成 BLOB
+}>({
+  dataType(config) {
+    return `F32_BLOB(${config.dimensions})`;
+  },
+  fromDriver(buf: Buffer) {
+    return Array.from(new Float32Array(buf.buffer));
+  },
+  toDriver(arr: number[]) {
+    // 用 Turso 提供的 vector32() 函数构造 BLOB
+    return sql`vector32(${JSON.stringify(arr)})`;
+  },
+});
 
 // Memos table - using TEXT ID to match Turso structure
 export const memos = sqliteTable('memos', {
@@ -11,7 +29,7 @@ export const memos = sqliteTable('memos', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   deletedAt: text('deleted_at'),
-  embedding: blob('embedding'), // For vector search - F32_BLOB(2560) in Turso
+  embedding: float32Array('embedding', { dimensions: 2560 }), // ← 改成 2560
 }, (table) => [
   // 优化后的复合索引 - 同时支持筛选和排序
   index('memos_active_created_idx').on(table.deletedAt, desc(table.createdAt)),

@@ -10,7 +10,7 @@ import {
     AIServiceError
 } from "../../../../src/services/aiService";
 const TOP_K = 30; // Retrieve top 30 most similar memos
-const SIMILARITY_THRESHOLD = 0.4; // Cosine distance threshold, lower is more similar (0.4 -> 60% similarity)
+const SIMILARITY_THRESHOLD = 0.6; // Cosine distance threshold, lower is more similar (0.6 -> 40% similarity)
 
 console.log("🔧 AI Search Route initialized with config:");
 console.log("- TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "✅ Set" : "❌ Missing");
@@ -35,33 +35,80 @@ async function getEmbedding(text: string): Promise<number[]> {
 }
 
 /**
- * Performs vector similarity search in Turso database
+ * Performs vector similarity search in Turso database using hybrid approach with new schema
  */
 async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
-    console.log("🔍 Performing simple search (vector search disabled)...");
-
     try {
-        // Simple search - return recent memos since vector search is not available
-        const searchResult = await db
-            .select({
-                id: schema.memos.id,
-                content: schema.memos.content,
-                created_at: schema.memos.createdAt,
-                updated_at: schema.memos.updatedAt
-            })
-            .from(schema.memos)
-            .where(sql`${schema.memos.deletedAt} IS NULL`)
-            .orderBy(sql`${schema.memos.createdAt} DESC`)
-            .limit(TOP_K);
-
-        return searchResult.map(memo => ({
-            ...memo,
-            similarity_score: 0.5 // Placeholder similarity score
+        console.log("🔍 Performing vector similarity search...");
+        
+        // 将Buffer转换为数组格式，以便在SQL中使用vector32()函数
+        const queryArray = Array.from(new Float32Array(queryVectorBuffer.buffer));
+        const vectorString = JSON.stringify(queryArray);
+        
+        // 使用原始 SQL 执行向量搜索，配合新的 vector32() 函数
+        const vectorSearchSQL = `
+            SELECT 
+                id,
+                content,
+                created_at,
+                updated_at,
+                vector_distance_cos(embedding, vector32(?)) as distance
+            FROM memos 
+            WHERE 
+                deleted_at IS NULL 
+                AND embedding IS NOT NULL
+            ORDER BY distance ASC
+            LIMIT ?
+        `;
+        
+        // 执行向量搜索查询
+        const result = await client.execute({
+            sql: vectorSearchSQL,
+            args: [vectorString, TOP_K]
+        });
+        
+        // 转换结果格式
+        const searchResults = result.rows.map(row => ({
+            id: row[0] as string,
+            content: row[1] as string,
+            created_at: row[2] as string,
+            updated_at: row[3] as string,
+            similarity_score: 1 - (row[4] as number) // 转换为相似度 (1 - cosine_distance)
         }));
-
+        
+        // 过滤相似度阈值
+        const filteredResults = searchResults.filter(
+            result => (1 - result.similarity_score) <= SIMILARITY_THRESHOLD
+        );
+        
+        console.log(`✅ Vector search completed: ${filteredResults.length} results found (filtered from ${searchResults.length})`);
+        return filteredResults;
+        
     } catch (error: any) {
-        console.error("❌ Search failed:", error);
-        throw new Error(`Search failed: ${error.message}`);
+        console.error("❌ Vector search failed, falling back to simple search:", error);
+        
+        // 如果向量搜索失败，回退到简单搜索
+        try {
+            const searchResult = await db
+                .select({
+                    id: schema.memos.id,
+                    content: schema.memos.content,
+                    created_at: schema.memos.createdAt,
+                    updated_at: schema.memos.updatedAt
+                })
+                .from(schema.memos)
+                .where(sql`${schema.memos.deletedAt} IS NULL`)
+                .orderBy(sql`${schema.memos.createdAt} DESC`)
+                .limit(TOP_K);
+
+            return searchResult.map(memo => ({
+                ...memo,
+                similarity_score: 0.5 // 占位符相似度分数
+            }));
+        } catch (fallbackError: any) {
+            console.error("❌ Fallback search also failed:", fallbackError);
+            throw new Error(`Search failed: ${error.message}`);
+        }
     }
 }
 

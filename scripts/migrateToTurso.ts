@@ -2,14 +2,17 @@ import { PrismaClient } from "@prisma/client";
 import { withAccelerate } from "@prisma/extension-accelerate";
 import { createClient } from "@libsql/client";
 import { drizzle } from 'drizzle-orm/libsql';
+import { sql } from 'drizzle-orm';
 import * as schema from "../src/db/schema";
+import { generateEmbedding } from "../src/services/embeddingService";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 // === 配置 ===
-const BATCH_SIZE = 100; // 每批处理的memo数量（不生成embedding，可以增加批次大小）
-const MAX_MEMOS_TO_MIGRATE = 100; // 最大迁移memo数量（测试用）
+const BATCH_SIZE = 20; // 每批处理的memo数量（生成embedding需要API调用，减少批次大小）
+const MAX_MEMOS_TO_MIGRATE = 20; // 最大迁移memo数量（测试用）
+const EMBEDDING_DELAY = 100; // 每次embedding生成后的延迟(ms)，避免API限流
 
 // === 客户端初始化 ===
 const prisma = new PrismaClient().$extends(withAccelerate());
@@ -26,8 +29,9 @@ console.log("🔧 环境配置检查：");
 console.log("- Prisma DATABASE_URL:", process.env.DATABASE_URL ? "✅ 已设置" : "❌ 未设置");
 console.log("- Turso DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "✅ 已设置" : "❌ 未设置");
 console.log("- Turso AUTH_TOKEN:", process.env.TURSO_AUTH_TOKEN ? "✅ 已设置" : "❌ 未设置");
+console.log("- SILICONFLOW_API_KEY:", process.env.SILICONFLOW_API_KEY ? "✅ 已设置" : "❌ 未设置");
 console.log(`⚠️ 注意: 此次迁移只同步 ${MAX_MEMOS_TO_MIGRATE} 条memo数据（测试模式）`);
-console.log("⚠️ 注意: 此次迁移不生成embedding，可后续通过异步任务生成");
+console.log("✨ 新特性: 此次迁移将为每个memo生成embedding向量");
 console.log("");
 
 /**
@@ -104,7 +108,27 @@ async function migrateLinks() {
 }
 
 /**
- * 迁移笔记（分批处理，不生成embedding）
+ * 生成memo embedding的辅助函数（适配新的 vector32() 函数）
+ */
+async function generateMemoEmbedding(content: string): Promise<number[] | null> {
+    try {
+        console.log(`    🧠 生成embedding...`);
+        const embedding = await generateEmbedding(content);
+        
+        // 添加延迟避免API限流
+        if (EMBEDDING_DELAY > 0) {
+            await new Promise(resolve => setTimeout(resolve, EMBEDDING_DELAY));
+        }
+        
+        return embedding; // 直接返回数组，新的 schema 会处理转换
+    } catch (error) {
+        console.error(`    ❌ 生成embedding失败:`, error);
+        return null; // 如果embedding生成失败，返回null，不影响整体迁移
+    }
+}
+
+/**
+ * 迁移笔记（分批处理，生成embedding）
  */
 async function migrateMemos() {
     console.log("� 开始迁移笔记（不生成embedding）...");
@@ -125,6 +149,8 @@ async function migrateMemos() {
     
     const totalBatches = Math.ceil(prismaMemosData.length / BATCH_SIZE);
     const allMemoTagRelations: { memoId: string; tagId: string }[] = [];
+    let embeddingSuccessCount = 0;
+    let embeddingFailCount = 0;
     
     // 分批处理
     for (let i = 0; i < prismaMemosData.length; i += BATCH_SIZE) {
@@ -133,16 +159,31 @@ async function migrateMemos() {
         
         console.log(`  📦 批次 ${batchNumber}/${totalBatches}: 处理 ${batchMemos.length} 条笔记`);
         
-        // 准备memo数据（embedding字段设为null）
-        const memosToInsert = batchMemos.map(memo => ({
-            id: memo.id, // 保持原有ID
-            content: memo.content,
-            images: JSON.stringify(memo.images || []),
-            createdAt: memo.createdAt.toISOString(),
-            updatedAt: memo.updatedAt.toISOString(),
-            deletedAt: memo.deleted_at?.toISOString() || null,
-            embedding: null, // 不生成embedding，后续可通过异步任务生成
-        }));
+        // 为每个memo生成embedding和准备数据
+        const memosToInsert = [];
+        for (const memo of batchMemos) {
+            console.log(`    📝 处理memo: ${memo.id.substring(0, 8)}...`);
+            
+            // 生成embedding
+            const embeddingArray = await generateMemoEmbedding(memo.content);
+            if (embeddingArray) {
+                embeddingSuccessCount++;
+                console.log(`    ✅ embedding生成成功`);
+            } else {
+                embeddingFailCount++;
+                console.log(`    ⚠️ embedding生成失败，将继续迁移`);
+            }
+            
+            memosToInsert.push({
+                id: memo.id, // 保持原有ID
+                content: memo.content,
+                images: JSON.stringify(memo.images || []),
+                createdAt: memo.createdAt.toISOString(),
+                updatedAt: memo.updatedAt.toISOString(),
+                deletedAt: memo.deleted_at?.toISOString() || null,
+                embedding: embeddingArray, // 直接传入数组，schema会处理转换
+            });
+        }
         
         // 插入memo数据
         await db.insert(schema.memos).values(memosToInsert);
@@ -160,7 +201,8 @@ async function migrateMemos() {
         console.log(`    ✅ 批次 ${batchNumber} 完成`);
     }
     
-    console.log(`✅ 所有笔记迁移完成（embedding将在后续生成）`);
+    console.log(`✅ 所有笔记迁移完成`);
+    console.log(`📊 Embedding统计: 成功 ${embeddingSuccessCount}, 失败 ${embeddingFailCount}`);
     return { memos: prismaMemosData, memoTagRelations: allMemoTagRelations };
 }
 
@@ -186,6 +228,166 @@ async function migrateMemoTagRelations(relations: { memoId: string; tagId: strin
 }
 
 /**
+ * 创建向量索引（真正的混合方案 - 重新生成embedding）
+ */
+async function createVectorIndex() {
+    console.log("🔗 创建向量索引...");
+    
+    try {
+        // 检查表是否已经有正确的向量类型
+        console.log("  📝 检查表结构...");
+        const tableInfo = await turso.execute("PRAGMA table_info(memos)");
+        const embeddingColumn = tableInfo.rows.find(row => row[1] === 'embedding');
+        
+        if (embeddingColumn) {
+            console.log(`  📊 当前embedding列类型: ${embeddingColumn[2]}`);
+            
+            // 如果类型不是F32_BLOB，需要重建表
+            if (embeddingColumn[2] !== 'F32_BLOB(2560)') {
+                console.log("  ⚠️ 发现embedding列类型不正确，需要重建表...");
+                await rebuildTableWithCorrectVectorType();
+            } else {
+                // 检查是否需要重新生成 embedding
+                const vectorCheck = await turso.execute("SELECT COUNT(*) as count, SUM(LENGTH(embedding)) as total_length FROM memos WHERE embedding IS NOT NULL");
+                const count = vectorCheck.rows[0][0] as number;
+                const totalLength = vectorCheck.rows[0][1] as number;
+                
+                if (count > 0 && (totalLength === 0 || totalLength < count * 1000)) {
+                    console.log(`  ⚠️ 发现向量数据损坏 (${count} 条记录，总长度 ${totalLength})，需要重新生成...`);
+                    await regenerateEmbeddings();
+                }
+            }
+        }
+        
+        // 现在创建向量索引
+        console.log("  📝 创建向量索引...");
+        await turso.execute("CREATE INDEX IF NOT EXISTS memos_embedding_idx ON memos (libsql_vector_idx(embedding))");
+        console.log("✅ 向量索引创建完成");
+        
+        // 验证索引是否创建成功
+        const indexResult = await turso.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='memos_embedding_idx'");
+        if (indexResult.rows.length > 0) {
+            console.log("✅ 向量索引验证成功");
+            
+            // 测试向量搜索功能
+            console.log("  🧪 测试向量搜索功能...");
+            const testResult = await turso.execute(`
+                SELECT id, vector_distance_cos(embedding, vector32('[${new Array(2560).fill(0.1).join(',')}]')) as distance 
+                FROM memos 
+                WHERE embedding IS NOT NULL 
+                LIMIT 3
+            `);
+            
+            if (testResult.rows.length > 0) {
+                console.log(`✅ 向量搜索测试成功，找到 ${testResult.rows.length} 条记录`);
+                testResult.rows.forEach((row, index) => {
+                    console.log(`    ${index + 1}. ID: ${(row[0] as string).substring(0, 8)}..., Distance: ${row[1]}`);
+                });
+            } else {
+                console.log("⚠️ 向量搜索测试未找到记录（可能是没有embedding数据）");
+            }
+        } else {
+            console.log("⚠️ 向量索引验证失败");
+        }
+        
+    } catch (error) {
+        console.error("❌ 创建向量索引失败:", error);
+        console.log("⚠️ 向量搜索可能无法正常工作，但不影响其他功能");
+        
+        // 如果索引创建失败，提供调试信息
+        try {
+            const embeddingData = await turso.execute("SELECT id, typeof(embedding) as type, LENGTH(embedding) as length FROM memos WHERE embedding IS NOT NULL LIMIT 3");
+            console.log("🔍 调试信息 - embedding数据状态:", embeddingData.rows);
+        } catch (debugError) {
+            console.log("🔍 无法获取调试信息:", debugError);
+        }
+    }
+}
+
+/**
+ * 重建表结构以使用正确的向量类型
+ */
+async function rebuildTableWithCorrectVectorType() {
+    console.log("  📝 重建表以使用正确的向量类型...");
+    
+    // 创建带有正确向量类型的新表
+    await turso.execute(`
+        CREATE TABLE memos_new (
+            id TEXT PRIMARY KEY,
+            content TEXT NOT NULL,
+            images TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT,
+            embedding F32_BLOB(2560)
+        )
+    `);
+    
+    // 复制基础数据（不包括embedding）
+    await turso.execute(`
+        INSERT INTO memos_new (id, content, images, created_at, updated_at, deleted_at, embedding)
+        SELECT id, content, images, created_at, updated_at, deleted_at, NULL
+        FROM memos
+    `);
+    
+    // 删除旧表并重命名新表
+    await turso.execute("DROP TABLE memos");
+    await turso.execute("ALTER TABLE memos_new RENAME TO memos");
+    
+    console.log("  ✅ 表重建完成，现在使用正确的 F32_BLOB(2560) 类型");
+    
+    // 重新生成 embedding
+    await regenerateEmbeddings();
+}
+
+/**
+ * 重新生成 embedding 数据
+ */
+async function regenerateEmbeddings() {
+    console.log("  🧠 重新生成 embedding 数据...");
+    
+    // 获取所有需要生成 embedding 的记录
+    const memosToProcess = await turso.execute("SELECT id, content FROM memos WHERE embedding IS NULL OR LENGTH(embedding) = 0");
+    
+    console.log(`  📊 需要生成 embedding 的记录数: ${memosToProcess.rows.length}`);
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const row of memosToProcess.rows) {
+        const id = row[0] as string;
+        const content = row[1] as string;
+        
+        try {
+            console.log(`    🧠 为 ${id.substring(0, 8)}... 生成embedding`);
+            
+            // 生成 embedding
+            const embedding = await generateEmbedding(content);
+            const vectorString = JSON.stringify(embedding);
+            
+            // 使用 vector32() 函数插入
+            await turso.execute({
+                sql: "UPDATE memos SET embedding = vector32(?) WHERE id = ?",
+                args: [vectorString, id]
+            });
+            
+            successCount++;
+            
+            // 添加延迟避免API限流
+            if (EMBEDDING_DELAY > 0) {
+                await new Promise(resolve => setTimeout(resolve, EMBEDDING_DELAY));
+            }
+            
+        } catch (error) {
+            console.error(`    ❌ 为 ${id.substring(0, 8)}... 生成embedding失败:`, error);
+            failCount++;
+        }
+    }
+    
+    console.log(`  ✅ Embedding 重新生成完成: 成功 ${successCount}, 失败 ${failCount}`);
+}
+
+/**
  * 设置同步元数据
  */
 async function setSyncMetadata() {
@@ -204,11 +406,11 @@ async function setSyncMetadata() {
         },
         {
             key: "migration_type",
-            value: "full_migration_from_prisma_without_embeddings"
+            value: "full_migration_from_prisma_with_embeddings"
         },
         {
             key: "embeddings_generated",
-            value: "false"
+            value: "true"
         }
     ]);
     
@@ -289,10 +491,13 @@ async function main() {
         // 5. 迁移memo-tag关系
         await migrateMemoTagRelations(memoTagRelations);
         
-        // 6. 设置同步元数据
+        // 6. 创建向量索引
+        await createVectorIndex();
+        
+        // 7. 设置同步元数据
         await setSyncMetadata();
         
-        // 7. 验证迁移结果
+        // 8. 验证迁移结果
         const isValid = await validateMigration();
         
         const duration = (Date.now() - startTime) / 1000;
@@ -330,9 +535,10 @@ if (require.main === module) {
             console.log("📝 接下来的步骤:");
             console.log("  1. 验证应用连接到Turso数据库正常");
             console.log("  2. 测试核心功能（创建、查看、编辑memo）");
-            console.log("  3. 🔄 后续生成embedding：");
-            console.log("     - 新创建的memo会自动生成embedding");
-            console.log("     - 可运行异步任务为历史memo生成embedding");
+            console.log("  3. ✅ Embedding已生成：");
+            console.log("     - 迁移过程中已为历史memo生成embedding");
+            console.log("     - 新创建的memo会继续自动生成embedding");
+            console.log("     - 可以测试AI搜索和相关功能");
             console.log("  4. 如果一切正常，可以停用Prisma数据库");
             process.exit(0);
         })

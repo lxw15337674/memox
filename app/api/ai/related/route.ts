@@ -193,23 +193,17 @@ async function findRelatedMemos(memoId: string, queryEmbedding: number[]): Promi
                 isNull(schema.memos.deletedAt)
             ));
 
-        console.log(`📊 Found ${candidateMemos.length} candidate memos for similarity comparison`);
 
         // Calculate similarity scores and filter by threshold
         const memosWithScores = candidateMemos
             .map(memo => {
                 if (!memo.embedding) {
-                    console.log(`⚠️ Memo ${memo.id} has no embedding, skipping...`);
                     return null; // Skip memos without embeddings
                 }
 
                 try {
                     const memoEmbedding = parseEmbeddingFromTurso(memo.embedding);
-                    console.log(`📊 Memo ${memo.id}: embedding length=${memoEmbedding.length}, first 3 values=[${memoEmbedding.slice(0,3).join(',')}]`);
-                    console.log(`📊 Query embedding length=${queryEmbedding.length}, first 3 values=[${queryEmbedding.slice(0,3).join(',')}]`);
-                    
                     const similarity = calculateCosineSimilarity(queryEmbedding, memoEmbedding);
-                    console.log(`🎯 Similarity between query and memo ${memo.id}: ${similarity}`);
                     
                     return {
                         ...memo,
@@ -224,8 +218,6 @@ async function findRelatedMemos(memoId: string, queryEmbedding: number[]): Promi
             .filter(memo => memo.similarity_score >= SIMILARITY_THRESHOLD)
             .sort((a, b) => b.similarity_score - a.similarity_score) // Sort by similarity desc
             .slice(0, TOP_K);
-
-        console.log(`🎯 Found ${memosWithScores.length} related memos above similarity threshold ${SIMILARITY_THRESHOLD}`);
 
         return memosWithScores;
 

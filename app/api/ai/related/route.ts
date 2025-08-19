@@ -261,9 +261,9 @@ export async function POST(req: Request) {
         const formattedMemos = aiAnalyzedMemos.map((row: any) => ({
             id: String(row.id),
             content: String(row.content),
-            created_at: String(row.created_at),
-            updated_at: String(row.updated_at),
-            aiRelevanceScore: Number(row.aiRelevanceScore || 0)
+            aiRelevanceScore: Number(row.aiRelevanceScore || 0),
+            createdAt: String(row.created_at),
+            tags: row.tags || []
         }));
 
         const duration = (Date.now() - startTime) / 1000;

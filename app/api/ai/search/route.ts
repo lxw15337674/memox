@@ -148,7 +148,6 @@ export async function POST(req: Request) {
         const sources = searchResults.map(row => ({
             id: String(row.id),
             content: String(row.content),
-            similarity: row.similarity_score ? parseFloat(String(row.similarity_score)) : null,
             preview: String(row.content).substring(0, 150) + (String(row.content).length > 150 ? "..." : ""),
             createdAt: row.created_at ? String(row.created_at) : null,
             updatedAt: row.updated_at ? String(row.updated_at) : null,
@@ -159,19 +158,6 @@ export async function POST(req: Request) {
                 day: 'numeric'
             }) : '未知日期'
         }));
-
-        // If no sources meet the similarity threshold, return early
-        if (sources.length === 0) {
-            const duration = (Date.now() - startTime) / 1000;
-            return new Response(JSON.stringify({
-                answer: "🔍 我找到了一些笔记内容，但它们与你的问题关联度不够高（相似度<50%）。\n\n**为了获得更精准的结果，建议：**\n- 尝试使用更具体的描述或关键词\n- 换个角度重新组织问题\n- 检查是否有相关笔记使用了不同的表达方式\n\n你的问题很有价值，也许可以先记录一些相关思考，帮助我未来更好地理解你的需求！",
-                resultsCount: 0,
-                sources: []
-            }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
 
         // Use filtered sources for context generation
         const candidatesForAI = sources.map((source, index) => 
@@ -259,22 +245,26 @@ export async function POST(req: Request) {
                 aiScoredSources = sources
                     .map(source => ({
                         ...source,
-                        aiRelevanceScore: scoreMap.get(source.id)?.aiScore || 0,
-                        // Replace vector similarity with AI score as primary metric
-                        similarity: scoreMap.get(source.id)?.aiScore || source.similarity
+                        aiRelevanceScore: scoreMap.get(source.id)?.aiScore || 0
                     }))
                     .filter(source => source.aiRelevanceScore >= 0.3) // Filter by AI score threshold
                     .sort((a, b) => b.aiRelevanceScore - a.aiRelevanceScore); // Sort by AI relevance
             } else {
                 // Fallback to original sources if AI scoring fails
-                aiScoredSources = sources;
+                aiScoredSources = sources.map(source => ({
+                    ...source,
+                    aiRelevanceScore: 0.5 // Default relevance score when AI fails
+                }));
             }
             
         } catch (e: any) {
             console.error("❌ Failed to parse AI JSON response:", e.message);
             // Fallback to using the raw content if parsing fails
             answer = response.content;
-            aiScoredSources = sources;
+            aiScoredSources = sources.map(source => ({
+                ...source,
+                aiRelevanceScore: 0.5 // Default relevance score when JSON parsing fails
+            }));
         }
 
         const duration = (Date.now() - startTime) / 1000;

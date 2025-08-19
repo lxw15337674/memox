@@ -28,7 +28,7 @@ interface Message {
 interface SearchSource {
     id: string;
     content: string;
-    similarity: number | null;
+    aiRelevanceScore: number;
     preview: string;
     createdAt: string | null;
     updatedAt: string | null;
@@ -95,9 +95,7 @@ export function AISearchDialog({ open, onOpenChange }: AISearchDialogProps) {
                                         </div>
                                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                             <span>📅 {source.displayDate}</span>
-                                            {source.similarity !== null && (
-                                                <span>📊 相似度: {((1 - source.similarity) * 100).toFixed(1)}%</span>
-                                            )}
+                                            <span>🎯 相关性: {(source.aiRelevanceScore * 100).toFixed(1)}%</span>
                                         </div>
                                     </div>
                                 </div>

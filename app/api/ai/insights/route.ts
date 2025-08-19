@@ -1,9 +1,7 @@
 import { db as client } from "../../../../src/db";
 import * as schema from "../../../../src/db/schema";
-import { eq, isNull, desc } from "drizzle-orm";
+import { eq, isNull, desc, and, gte, lte } from "drizzle-orm";
 import { callAI, AIServiceError } from "../../../../src/services/aiService";
-
-console.log("🔧 AI Insights Route initialized");
 
 // Comprehensive insight prompt (moved from aiActions.ts)
 const comprehensiveInsightPrompt = `
@@ -42,16 +40,7 @@ const comprehensiveInsightPrompt = `
 示例表达：
 "你有没有发现，每当遇到困难时，你总是首先从【X角度】思考，这可能反映了你的【某种特质】..."
 
-### B. 情感规律洞察  
-- 情绪触发的时间和情境模式
-- 情感处理和表达方式
-- 积极/消极情绪的平衡点
-- 情感恢复的机制
-
-示例表达：
-"看起来每当【某种情况】发生时，你的情绪会【某种变化】，也许这背后隐藏着【更深层的原因】..."
-
-### C. 主题关联洞察
+### B. 主题关联洞察
 - 看似无关话题之间的潜在联系
 - 跨领域思考的共同线索
 - 价值观在不同场景中的体现
@@ -60,7 +49,7 @@ const comprehensiveInsightPrompt = `
 示例表达：
 "有个有趣的发现：你在谈论【A话题】和【B话题】时，都会提到【共同元素】，这可能说明【深层联系】..."
 
-### D. 回避与盲点洞察
+### C. 回避与盲点洞察
 - 很少被提及但重要的生活领域
 - 浅层讨论后就转移的话题
 - 可能存在的心理防御机制
@@ -83,7 +72,7 @@ const comprehensiveInsightPrompt = `
 请严格按照以下JSON格式输出，确保JSON格式完整有效：
 
 {
-  "overview": "对用户整体思考模式的简洁总结（不超过200字）",
+  "overview": "对用户整体思考模式的简洁总结（不超过100字）",
   "insights": [
     {
       "type": "思考模式|情感规律|主题关联|回避盲点|成长轨迹",
@@ -143,16 +132,17 @@ async function getMemosForInsight(options: {
 } = {}) {
     const { maxMemos = 20, timeRange } = options;
 
-    console.log("📊 Fetching memos for insight analysis...");
-
     try {
         // Build where conditions
         const whereConditions = [isNull(schema.memos.deletedAt)];
         
         if (timeRange) {
-            whereConditions.push(
-                // Add time range conditions if needed
-            );
+            if (timeRange.start) {
+                whereConditions.push(gte(schema.memos.createdAt, timeRange.start));
+            }
+            if (timeRange.end) {
+                whereConditions.push(lte(schema.memos.createdAt, timeRange.end));
+            }
         }
 
         // Get memos with their tags
@@ -167,7 +157,7 @@ async function getMemosForInsight(options: {
             .from(schema.memos)
             .leftJoin(schema.memoTags, eq(schema.memos.id, schema.memoTags.memoId))
             .leftJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
-            .where(isNull(schema.memos.deletedAt))
+            .where(and(...whereConditions))
             .orderBy(desc(schema.memos.createdAt))
             .limit(maxMemos * 10); // Get more to account for grouping
 
@@ -198,11 +188,9 @@ async function getMemosForInsight(options: {
                 tags: memo.tags
             }));
 
-        console.log(`✅ Retrieved ${memos.length} memos for analysis`);
         return memos;
 
     } catch (error) {
-        console.error("❌ Error fetching memos:", error);
         throw new Error("Failed to fetch memos for analysis");
     }
 }
@@ -210,20 +198,15 @@ async function getMemosForInsight(options: {
 // Main API handler for the POST request
 export async function POST(req: Request) {
     const startTime = Date.now();
-    console.log("\n🚀 AI Insights API called at:", new Date().toISOString());
 
     try {
         const body = await req.json();
         const { maxMemos = 30, timeRange } = body;
 
-        console.log("📋 Request parameters:", { maxMemos, timeRange });
-
         // 1. Get memos data
-        console.log("\n📍 Step 1: Fetching memos data...");
         const memos = await getMemosForInsight({ maxMemos, timeRange });
 
         if (memos.length === 0) {
-            console.log("⚠️ No memos found for analysis");
             return new Response(JSON.stringify({
                 error: "没有找到足够的笔记数据用于分析"
             }), {
@@ -233,16 +216,12 @@ export async function POST(req: Request) {
         }
 
         // 2. Prepare data for AI analysis
-        console.log("\n📍 Step 2: Preparing data for AI analysis...");
         const startDate = memos[memos.length - 1]?.created_at || '';
         const endDate = memos[0]?.created_at || '';
         const totalCount = memos.length;
         const allMemoContents = formatMemosForAI(memos);
 
-        console.log(`📊 Analysis scope: ${totalCount} memos from ${startDate} to ${endDate}`);
-
         // 3. Generate insights using AI
-        console.log("\n📍 Step 3: Generating insights with AI...");
         const prompt = comprehensiveInsightPrompt
             .replace('{startDate}', startDate)
             .replace('{endDate}', endDate)
@@ -258,17 +237,13 @@ export async function POST(req: Request) {
             maxTokens: 2000
         });
 
-        console.log("✅ AI response received");
-
         // 4. Process AI response
-        console.log("\n📍 Step 4: Processing AI response...");
         let insights;
         const responseData = aiResponse.content;
         if (typeof responseData === 'string') {
             try {
                 insights = JSON.parse(responseData);
             } catch (parseError) {
-                console.error('❌ JSON parse error:', parseError);
                 throw new Error('AI返回的JSON格式无效');
             }
         } else {
@@ -276,8 +251,6 @@ export async function POST(req: Request) {
         }
 
         // 5. Validate and complete necessary fields
-        console.log("\n📍 Step 5: Validating and completing response...");
-
         if (!insights.overview) {
             insights.overview = '基于你的笔记内容，我发现了一些有趣的思考模式和行为规律。';
         }
@@ -297,7 +270,6 @@ export async function POST(req: Request) {
         }
 
         const duration = (Date.now() - startTime) / 1000;
-        console.log(`\n🎉 Insights generation completed successfully in ${duration.toFixed(2)}s`);
 
         return new Response(JSON.stringify({
             ...insights,
@@ -312,12 +284,6 @@ export async function POST(req: Request) {
 
     } catch (error: any) {
         const duration = (Date.now() - startTime) / 1000;
-
-        if (error instanceof AIServiceError) {
-            console.error(`\n❌ AI Service Error after ${duration.toFixed(2)}s:`, error.code, error.message, error.details);
-        } else {
-            console.error(`\n❌ Insights generation failed after ${duration.toFixed(2)}s:`, error);
-        }
 
         return new Response(JSON.stringify({
             error: error.message || "生成洞察时发生未知错误",

@@ -2,6 +2,7 @@ import {
     generateEmbedding,
     prepareEmbeddingForTurso,
     parseEmbeddingFromTurso,
+    calculateCosineSimilarity,
     EmbeddingServiceError
 } from "../../../../src/services/embeddingService";
 import { callAI } from "../../../../src/services/aiService";
@@ -10,10 +11,9 @@ import { db } from "../../../../src/db";
 import * as schema from "../../../../src/db/schema";
 import { eq, and, isNull, ne } from "drizzle-orm";
 
-const TOP_K = 10; // Maximum related memos to return
-const AI_ANALYSIS_LIMIT = 20; // 限制传给AI分析的笔记数量，减少以提高成功率
-
-console.log("🔧 AI Related Memos Route initialized");
+const TOP_K = 20; // Maximum related memos to return
+const VECTOR_SIMILARITY_THRESHOLD = 0.4; // 向量相似度阈值
+const MAX_AI_CANDIDATES = 30; // 向量预筛选后送给AI分析的最大候选数量
 
 async function getMemoEmbedding(memoId: string): Promise<number[]> {
     try {
@@ -42,9 +42,8 @@ async function getMemoEmbedding(memoId: string): Promise<number[]> {
                 if (embeddingArray.length === 2560) { // Simple validation
                     return embeddingArray;
                 }
-                console.warn(`⚠️ Existing embedding for memo ${memoId} has incorrect length, regenerating...`);
             } catch (e) {
-                console.warn(`⚠️ Failed to parse existing embedding for memo ${memoId}, regenerating...`);
+                // Silently regenerate if parsing fails
             }
         }
 
@@ -53,7 +52,6 @@ async function getMemoEmbedding(memoId: string): Promise<number[]> {
             throw new Error("Memo content is empty, cannot generate embedding");
         }
 
-        console.log(`🔄 Generating new embedding for memo ${memoId}`);
         const newEmbedding = await generateEmbedding(content);
 
         // Asynchronously save the new embedding without blocking the response
@@ -62,8 +60,8 @@ async function getMemoEmbedding(memoId: string): Promise<number[]> {
             .update(schema.memos)
             .set({ embedding: embeddingForTurso })
             .where(eq(schema.memos.id, memoId))
-            .catch(saveError => {
-                console.warn(`⚠️ Failed to save new embedding for memo ${memoId} in background:`, saveError);
+            .catch(() => {
+                // Silently handle save errors
             });
 
         return newEmbedding;
@@ -82,45 +80,59 @@ async function analyzeRelatedMemosWithAI(
     currentMemoContent: string, 
     candidateMemos: any[]
 ): Promise<any[]> {
-    console.log(`🤖 AI analyzing ${candidateMemos.length} candidate memos...`);
 
     try {
-        // 构建AI分析prompt
-        const memosForAnalysis = candidateMemos.slice(0, AI_ANALYSIS_LIMIT);
+        // 构建AI分析prompt - 使用所有向量预筛选的候选
+        const memosForAnalysis = candidateMemos; // 不再额外限制，相信向量预筛选的质量
         const memosText = memosForAnalysis.map((memo, index) => 
-            `${index + 1}. [ID: ${memo.id}] ${memo.content.substring(0, 200)}${memo.content.length > 200 ? '...' : ''}`
+            `${index + 1}. [ID: ${memo.id}] ${memo.content}`
         ).join('\n\n');
 
         const messages: ChatMessage[] = [
             {
                 role: 'system',
-                content: `你是一个智能笔记分析助手。你的任务是分析当前笔记与候选笔记之间的相关性，并按相关性从高到低排序。
+                content: `你是专业的笔记关联分析专家。你的任务是精确分析当前笔记与候选笔记之间的语义相关性。
 
-分析要考虑的因素：
-1. 主题相关性 - 是否讨论相同或相关的主题
-2. 语义相关性 - 概念、想法的关联
-3. 情境相关性 - 时间、地点、情境的关联
-4. 实用相关性 - 对理解当前笔记是否有帮助
+## 评分标准（严格执行）：
+- **0.9-1.0**：极高相关 - 同一主题的不同角度、直接延续或补充关系
+- **0.7-0.9**：高度相关 - 相同领域的不同方面、概念有明显关联
+- **0.5-0.7**：中等相关 - 相似主题但角度不同、间接相关
+- **0.3-0.5**：弱相关 - 仅有部分概念重叠、背景相关
+- **0.1-0.3**：极弱相关 - 微弱的概念联系
+- **0.0-0.1**：无关 - 完全不同的主题和内容
 
-请返回JSON格式，包含每个笔记的分析：
+## 分析重点：
+1. **核心主题匹配**：两个笔记是否讨论相同或密切相关的主题
+2. **概念层面关联**：涉及的概念、理论、方法是否有关联
+3. **逻辑关系**：是否存在因果、对比、补充等逻辑关系
+4. **实用价值**：对理解当前笔记是否有直接帮助
+5. **语义深度**：不仅看关键词，更要理解深层含义
+
+## 输出要求：
+- 必须返回有效的JSON格式
+- 每个笔记都必须给出评分
+- 评分要准确反映真实的相关程度
+- 宁可评分保守，也不要虚高
+
+请返回JSON格式：
 {
   "analysis": [
     {
       "id": "笔记ID",
-      "relevanceScore": 相关性评分(0-1)
+      "relevanceScore": 相关性评分(0-1的小数),
     }
   ]
 }`
             },
             {
                 role: 'user',
-                content: `当前笔记内容：
+                content: `## 当前笔记内容：
 ${currentMemoContent}
 
-候选相关笔记：
+## 候选相关笔记：
 ${memosText}
 
-请分析这些候选笔记与当前笔记的相关性，并返回分析结果。`
+请仔细分析每个候选笔记与当前笔记的相关性，基于内容的深层语义而非表面关键词。给出精确的相关性评分并返回JSON结果。`
             }
         ];
 
@@ -131,8 +143,7 @@ ${memosText}
 
         // 解析AI响应
         const analysisResult = JSON.parse(aiResponse.content);
-        console.log(`🎯 AI analysis completed for ${analysisResult.analysis?.length || 0} memos`);
-
+        console.log(analysisResult)
         // 将AI分析结果与原始数据合并
         const enhancedMemos = memosForAnalysis.map(memo => {
             const aiAnalysis = analysisResult.analysis?.find((a: any) => a.id === memo.id);
@@ -144,12 +155,11 @@ ${memosText}
 
         // 按AI相关性评分排序并返回
         return enhancedMemos
-            .filter(memo => memo.aiRelevanceScore > 0.2) // 过滤低分笔记
+            .filter(memo => memo.aiRelevanceScore > 0.4) // 过滤低分笔记
             .sort((a, b) => b.aiRelevanceScore - a.aiRelevanceScore)
+            .slice(0, TOP_K);
     } catch (error: any) {
-        console.error("❌ AI analysis failed:", error);
         // AI分析失败时，回退到按时间排序
-        console.log("🔄 Falling back to chronological order...");
         return candidateMemos
             .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
             .slice(0, TOP_K);
@@ -157,10 +167,9 @@ ${memosText}
 }
 
 /**
- * Performs vector similarity search to find related memos, filtering by a similarity threshold.
+ * 使用向量相似度查找候选笔记，为AI分析提供高质量的候选集
  */
 async function findRelatedMemos(memoId: string, queryEmbedding: number[]): Promise<any[]> {
-    console.log("🔍 Searching for related memos using vector similarity...");
 
     try {
         // Get all memos with embeddings (excluding the current memo)
@@ -187,16 +196,21 @@ async function findRelatedMemos(memoId: string, queryEmbedding: number[]): Promi
                 }
 
                 try {
+                    const memoEmbedding = parseEmbeddingFromTurso(memo.embedding);
+                    const similarity = calculateCosineSimilarity(queryEmbedding, memoEmbedding);
+                    
                     return {
-                        ...memo
+                        ...memo,
+                        vectorSimilarity: similarity
                     };
                 } catch (error) {
-                    console.warn(`⚠️ Failed to parse embedding for memo ${memo.id}, skipping...`, error);
                     return null;
                 }
             })
             .filter((memo): memo is NonNullable<typeof memo> => memo !== null)
-            .slice(0, TOP_K ); // 获取更多候选，让AI来筛选
+            .filter(memo => memo.vectorSimilarity >= VECTOR_SIMILARITY_THRESHOLD)
+            .sort((a, b) => b.vectorSimilarity - a.vectorSimilarity) // 按相似度降序排序
+            .slice(0, MAX_AI_CANDIDATES); // 限制AI分析的候选数量，平衡准确性和性能
 
         return memosWithScores;
 
@@ -218,8 +232,6 @@ export async function POST(req: Request) {
         if (!memoId || typeof memoId !== 'string') {
             return new Response(JSON.stringify({ error: "memoId is required" }), { status: 400 });
         }
-
-        console.log(`\n🚀 Related Memos API called for memo ID: ${memoId}`);
 
         // 1. Get memo embedding and content
         const [currentMemo] = await db
@@ -255,13 +267,11 @@ export async function POST(req: Request) {
         }));
 
         const duration = (Date.now() - startTime) / 1000;
-        console.log(`\n🎉 Found ${aiAnalyzedMemos.length} AI-analyzed related memos in ${duration.toFixed(2)}s.`);
 
         return new Response(JSON.stringify({
             relatedMemos: formattedMemos,
             count: formattedMemos.length,
             processingTime: duration,
-            analysisMethod: "ai_relevance_only"
         }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },

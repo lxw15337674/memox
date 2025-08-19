@@ -19,7 +19,7 @@ import { Note } from '../api/type';
 interface RelatedMemo {
     id: string;
     content: string;
-    aiRelevanceScore: number | null;
+    relevanceScore: number | null;
     preview: string;
     createdAt: string | null;
     displayDate: string;
@@ -249,9 +249,9 @@ export function RelatedMemosDialog({
                                                         <span className="bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">
                                                             #{index + 1}
                                                         </span>
-                                                        {memo.aiRelevanceScore !== null && (
+                                                        {memo.relevanceScore !== null && (
                                                             <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
-                                                                📊 相似度: {(memo.aiRelevanceScore * 100).toFixed(0)}%
+                                                                📊 相似度: {(memo.relevanceScore * 100).toFixed(0)}%
                                                             </span>
                                                         )}
                                                     </div>

@@ -131,11 +131,8 @@ export function prepareEmbeddingForTurso(embedding: number[]): number[] {
  * 从 Turso 解析嵌入向量数据
  */
 export function parseEmbeddingFromTurso(data: any): number[] {
-    console.log(`🔍 Parsing embedding data type: ${typeof data}, isArray: ${Array.isArray(data)}`);
-    
     // 如果已经是 number[] 数组，直接返回
     if (Array.isArray(data)) {
-        console.log(`✅ Data is already array with length: ${data.length}`);
         return data;
     }
     

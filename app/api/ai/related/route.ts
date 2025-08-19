@@ -2,26 +2,19 @@ import {
     generateEmbedding,
     prepareEmbeddingForTurso,
     parseEmbeddingFromTurso,
-    calculateCosineSimilarity,
     EmbeddingServiceError
 } from "../../../../src/services/embeddingService";
-import { callAI, AIServiceError } from "../../../../src/services/aiService";
+import { callAI } from "../../../../src/services/aiService";
 import type { ChatMessage } from "../../../../src/services/types";
-import { db, client } from "../../../../src/db";
+import { db } from "../../../../src/db";
 import * as schema from "../../../../src/db/schema";
-import { eq, and, isNull, ne, sql } from "drizzle-orm";
+import { eq, and, isNull, ne } from "drizzle-orm";
 
 const TOP_K = 10; // Maximum related memos to return
-const SIMILARITY_THRESHOLD = 0.3; // 降低阈值，让更多笔记参与AI分析
-const AI_ANALYSIS_LIMIT = 5; // 限制传给AI分析的笔记数量，减少以提高成功率
+const AI_ANALYSIS_LIMIT = 20; // 限制传给AI分析的笔记数量，减少以提高成功率
 
 console.log("🔧 AI Related Memos Route initialized");
 
-/**
- * Gets or generates an embedding for a given memo.
- * It prioritizes using a valid, existing embedding. If not available,
- * it generates a new one and saves it to the database asynchronously.
- */
 async function getMemoEmbedding(memoId: string): Promise<number[]> {
     try {
         const [existingMemo] = await db
@@ -114,9 +107,7 @@ async function analyzeRelatedMemosWithAI(
   "analysis": [
     {
       "id": "笔记ID",
-      "relevanceScore": 相关性评分(0-1),
-      "reason": "相关性原因简述",
-      "topics": ["相关主题1", "相关主题2"]
+      "relevanceScore": 相关性评分(0-1)
     }
   ]
 }`
@@ -147,26 +138,20 @@ ${memosText}
             const aiAnalysis = analysisResult.analysis?.find((a: any) => a.id === memo.id);
             return {
                 ...memo,
-                ai_relevance_score: aiAnalysis?.relevanceScore || 0,
-                ai_reason: aiAnalysis?.reason || '未分析',
-                ai_topics: aiAnalysis?.topics || [],
-                // 综合评分：向量相似度 * 0.4 + AI相关性 * 0.6
-                combined_score: (memo.similarity_score || 0) * 0.4 + (aiAnalysis?.relevanceScore || 0) * 0.6
+                aiRelevanceScore: aiAnalysis?.relevanceScore || 0
             };
         });
 
-        // 按综合评分排序并返回
+        // 按AI相关性评分排序并返回
         return enhancedMemos
-            .filter(memo => memo.combined_score > 0.2) // 过滤低分笔记
-            .sort((a, b) => b.combined_score - a.combined_score)
-            .slice(0, TOP_K);
-
+            .filter(memo => memo.aiRelevanceScore > 0.2) // 过滤低分笔记
+            .sort((a, b) => b.aiRelevanceScore - a.aiRelevanceScore)
     } catch (error: any) {
         console.error("❌ AI analysis failed:", error);
-        // AI分析失败时，回退到基础向量相似度排序
-        console.log("🔄 Falling back to vector similarity only...");
+        // AI分析失败时，回退到按时间排序
+        console.log("🔄 Falling back to chronological order...");
         return candidateMemos
-            .sort((a, b) => (b.similarity_score || 0) - (a.similarity_score || 0))
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
             .slice(0, TOP_K);
     }
 }
@@ -202,12 +187,8 @@ async function findRelatedMemos(memoId: string, queryEmbedding: number[]): Promi
                 }
 
                 try {
-                    const memoEmbedding = parseEmbeddingFromTurso(memo.embedding);
-                    const similarity = calculateCosineSimilarity(queryEmbedding, memoEmbedding);
-                    
                     return {
-                        ...memo,
-                        similarity_score: similarity
+                        ...memo
                     };
                 } catch (error) {
                     console.warn(`⚠️ Failed to parse embedding for memo ${memo.id}, skipping...`, error);
@@ -215,9 +196,7 @@ async function findRelatedMemos(memoId: string, queryEmbedding: number[]): Promi
                 }
             })
             .filter((memo): memo is NonNullable<typeof memo> => memo !== null)
-            .filter(memo => memo.similarity_score >= SIMILARITY_THRESHOLD)
-            .sort((a, b) => b.similarity_score - a.similarity_score) // Sort by similarity desc
-            .slice(0, TOP_K);
+            .slice(0, TOP_K ); // 获取更多候选，让AI来筛选
 
         return memosWithScores;
 
@@ -272,11 +251,7 @@ export async function POST(req: Request) {
             content: String(row.content),
             created_at: String(row.created_at),
             updated_at: String(row.updated_at),
-            similarity_score: Number(row.similarity_score || 0),
-            ai_relevance_score: Number(row.ai_relevance_score || 0),
-            combined_score: Number(row.combined_score || 0),
-            ai_reason: String(row.ai_reason || ''),
-            ai_topics: row.ai_topics || []
+            aiRelevanceScore: Number(row.aiRelevanceScore || 0)
         }));
 
         const duration = (Date.now() - startTime) / 1000;
@@ -286,7 +261,7 @@ export async function POST(req: Request) {
             relatedMemos: formattedMemos,
             count: formattedMemos.length,
             processingTime: duration,
-            analysisMethod: "vector_similarity_with_ai"
+            analysisMethod: "ai_relevance_only"
         }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },

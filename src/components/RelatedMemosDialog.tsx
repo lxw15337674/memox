@@ -19,7 +19,7 @@ import { Note } from '../api/type';
 interface RelatedMemo {
     id: string;
     content: string;
-    similarity: number | null;
+    aiRelevanceScore: number | null;
     preview: string;
     createdAt: string | null;
     displayDate: string;
@@ -120,7 +120,7 @@ export function RelatedMemosDialog({
     const handleRetry = () => {
         fetchRelatedMemos();
     };
-
+    console.log(relatedMemos)
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
@@ -243,15 +243,15 @@ export function RelatedMemosDialog({
                                             onClick={() => handleMemoClick(memo.id)}
                                         >
                                             <div className="space-y-3">
-                                                {/* Header with similarity and date */}
+                                                {/* Header with similarity_score and date */}
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                                         <span className="bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">
                                                             #{index + 1}
                                                         </span>
-                                                        {memo.similarity !== null && (
+                                                        {memo.aiRelevanceScore !== null && (
                                                             <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
-                                                                📊 相似度: {((1 - memo.similarity) * 100).toFixed(1)}%
+                                                                📊 相似度: {(memo.aiRelevanceScore * 100).toFixed(0)}%
                                                             </span>
                                                         )}
                                                     </div>

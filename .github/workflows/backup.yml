@@ -1,41 +1,41 @@
-name: Backup Data to Turso
+# name: Backup Data to Turso
 
-on:
-  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
-  schedule:
-    - cron: '0 5 * * *' # Runs every day at 5 AM Beijing Time (UTC+8)
+# on:
+#   workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
+#   schedule:
+#     - cron: '0 5 * * *' # Runs every day at 5 AM Beijing Time (UTC+8)
 
-jobs:
-  sync:
-    name: Sync PostgreSQL to Turso
-    runs-on: ubuntu-latest
-    env:
-      TZ: Asia/Shanghai
+# jobs:
+#   sync:
+#     name: Sync PostgreSQL to Turso
+#     runs-on: ubuntu-latest
+#     env:
+#       TZ: Asia/Shanghai
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '18'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
+#       - name: Setup pnpm
+#         uses: pnpm/action-setup@v2
+#         with:
+#           version: 8
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+#       - name: Setup Bun
+#         uses: oven-sh/setup-bun@v1
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+#       - name: Install dependencies
+#         run: pnpm install --no-frozen-lockfile
 
-      - name: Run sync script
-        run: pnpm dlx tsx scripts/syncToTurso.ts
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }} 
-          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
+#       - name: Run sync script
+#         run: pnpm dlx tsx scripts/syncToTurso.ts
+#         env:
+#           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+#           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+#           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }} 
+#           SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}

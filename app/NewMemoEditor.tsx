@@ -19,7 +19,7 @@ const NewMemoEditor: React.FC = () => {
         defaultValue: { content: '', images: [] }
     });
     
-    const { addMemoToStore, updateMemoTags } = useMemoStore();
+    const { addMemoToStore } = useMemoStore();
     const { updateCountsAfterMemoAdded } = useCountStore();
     const { hasFilter } = useFilterStore();
     const { toast } = useToast();

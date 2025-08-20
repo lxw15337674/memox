@@ -5,11 +5,22 @@ import { NewMemo as DrizzleNewMemo } from '../db/schema';
 import { db as client } from '../db';
 import * as schema from '../db/schema';
 import { generateTags } from './aiActions';
-import { generateEmbedding, embeddingToBuffer } from '../services/embeddingService';
+import { generateEmbedding } from '../services/embeddingService';
 import { waitUntil } from '@vercel/functions';
 import { eq, and, desc, asc, count, isNull, isNotNull, gte, lt, inArray, like, sql } from 'drizzle-orm';
 import { Desc } from '../store/filter';
 import { format } from 'date-fns';
+
+// 前端数据查询选择器 - 不包含 embedding 字段
+const frontendMemoSelect = {
+    id: schema.memos.id,
+    content: schema.memos.content,
+    images: schema.memos.images,
+    createdAt: schema.memos.createdAt,
+    updatedAt: schema.memos.updatedAt,
+    deletedAt: schema.memos.deletedAt,
+    // embedding 字段已移除 - 仅在 AI 功能中单独查询
+};
 
 
 export const getRecordsActions = async (config: {
@@ -30,13 +41,7 @@ export const getRecordsActions = async (config: {
             // 使用数据库原生RANDOM()函数进行随机排序
             const items = await client
                 .select({
-                    id: schema.memos.id,
-                    content: schema.memos.content,
-                    images: schema.memos.images,
-                    createdAt: schema.memos.createdAt,
-                    updatedAt: schema.memos.updatedAt,
-                    deletedAt: schema.memos.deletedAt,
-                    embedding: schema.memos.embedding,
+                    ...frontendMemoSelect,
                     link: {
                         id: schema.links.id,
                         url: schema.links.link,
@@ -296,13 +301,7 @@ export const getMemoByIdAction = async (id: string) => {
     try {
         const [memo] = await client
             .select({
-                id: schema.memos.id,
-                content: schema.memos.content,
-                images: schema.memos.images,
-                createdAt: schema.memos.createdAt,
-                updatedAt: schema.memos.updatedAt,
-                deletedAt: schema.memos.deletedAt,
-                embedding: schema.memos.embedding,
+                ...frontendMemoSelect,
                 link: {
                     id: schema.links.id,
                     url: schema.links.link,
@@ -341,66 +340,6 @@ export const getMemoByIdAction = async (id: string) => {
         };
     } catch (error) {
         console.error(error);
-        return null;
-    }
-};
-
-// 快速更新memo，不进行AI标签生成（适用于频繁保存场景）
-export const updateMemoQuickAction = async (id: string, newMemo: NewMemo) => {
-    try {
-        const { content, images, link } = newMemo;
-
-        const updatedMemo = await client.transaction(async (tx) => {
-            // 检查memo是否存在
-            const [existingMemo] = await tx
-                .select({ id: schema.memos.id })
-                .from(schema.memos)
-                .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
-
-            if (!existingMemo) {
-                throw new Error('Memo not found');
-            }
-
-            // 更新memo
-            await tx
-                .update(schema.memos)
-                .set({
-                    content,
-                    images: JSON.stringify(images || []),
-                    updatedAt: new Date().toISOString()
-                })
-                .where(eq(schema.memos.id, id));
-
-            // 处理链接
-            if (link) {
-                // 删除现有链接
-                await tx
-                    .delete(schema.links)
-                    .where(eq(schema.links.memoId, id));
-                
-                // 创建新链接
-                await tx
-                    .insert(schema.links)
-                    .values({
-                        id: crypto.randomUUID(),
-                        link: link.url,
-                        text: link.text,
-                        memoId: id,
-                        createdAt: new Date().toISOString()
-                    });
-            } else {
-                // 如果没有链接，删除现有链接
-                await tx
-                    .delete(schema.links)
-                    .where(eq(schema.links.memoId, id));
-            }
-
-            return { id };
-        });
-
-        return updatedMemo.id;
-    } catch (error) {
-        console.error("快速更新失败:", error);
         return null;
     }
 };
@@ -891,11 +830,11 @@ export const generateMemoEmbedding = async (memoId: string, content: string) => 
         
         // 生成embedding
         const embedding = await generateEmbedding(content.trim());
-        const embeddingBuffer = embeddingToBuffer(embedding);
-        // 保存到数据库
+        
+        // 保存到数据库 - 直接使用 number[] 数组，schema 的 toDriver 会处理转换
         await client
             .update(schema.memos)
-            .set({ embedding: embeddingBuffer })
+            .set({ embedding: embedding })
             .where(eq(schema.memos.id, memoId));
             
         console.log(`[Embedding] Memo ${memoId} 的embedding生成并保存成功`);

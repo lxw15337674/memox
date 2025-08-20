@@ -42,6 +42,9 @@ const MemoView = ({
   updatedAt,
   id,
 }: Note) => {
+  const parsedImages = useMemo(() => {
+    return images || [];
+  }, [images]);
   const [isEdited, setIsEdited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -55,19 +58,20 @@ const MemoView = ({
   const currentMemo: Note = useMemo(() => ({
     id,
     content,
-    images,
+    images: parsedImages,
     link,
     createdAt,
     updatedAt,
-    deleted_at: null, // This memo is visible, so it's not deleted
+    deletedAt: null, // This memo is visible, so it's not deleted
+    embedding: null,
     tags
-  }), [id, content, images, link, createdAt, updatedAt, tags]);
+  }), [id, content, parsedImages, link, createdAt, updatedAt, tags]);
 
   const { runAsync: updateRecord } = useRequest(updateMemoAction, {
     manual: true,
     onSuccess: (id) => {
       if (id) {
-        updateMemo(id);
+        updateMemo(String(id));
         setIsEdited(false);
       }
     }
@@ -90,10 +94,18 @@ const MemoView = ({
   }, [id, updateRecord]);
 
   if (isEdited) {
+    const editorLink = link ? {
+      link: link.link,
+      text: link.text,
+      id: String(link.id),
+      memoId: String(link.memoId),
+      createdAt: link.createdAt
+    } : undefined;
+    
     return <Editor
       defaultValue={content}
-      defaultImages={images}
-      defaultLink={link}
+      defaultImages={parsedImages}
+      defaultLink={editorLink}
       onSubmit={handleSubmit}
       onCancel={handleCancel}
     />
@@ -105,15 +117,15 @@ const MemoView = ({
           <MemoContent content={content} />
         </div>
         <MemoActionMenu
-          memoId={id}
+          memoId={String(id)}
           originalMemo={currentMemo}
           onEdit={handleEdit}
           parsedContent={content.split('\n').map(text => parseContent(text))}
         />
       </div>
-      {images.length > 0 && (
+      {parsedImages.length > 0 && (
         <div className="grid grid-cols-2 gap-1 mt-2">
-          {images.map((image) => (
+          {parsedImages.map((image: string) => (
               <ImageViewer
               key={image}
               src={image}
@@ -123,16 +135,16 @@ const MemoView = ({
         </div>
       )}
 
-      {link?.url && (
+      {link?.link && (
         <div className='mt-3'>
           <Link
-            href={link.url}
+            href={link.link}
             target="_blank"
-            rel="noreferrer"
-            title={link.text || link.url}
+            rel="noopener noreferrer"
+            title={link.text || link.link}
             className="text-blue-500 hover:text-blue-600 hover:underline truncate block text-sm transition-colors"
           >
-            {link.text || link.url}
+            {link.text || link.link}
           </Link>
         </div>
       )}

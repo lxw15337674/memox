@@ -10,7 +10,7 @@ import { PhotoProvider } from 'react-photo-view';
 import LinkAction, { LinkType } from './LinkAction';
 import { AutosizeTextarea } from '../ui/AutosizeTextarea';
 import { LucideIcon } from 'lucide-react';
-import { Link } from '@prisma/client';
+import { Link } from '../../db/schema';
 import { NewMemo } from '../../api/type';
 import { AIPolishPreview } from './AIPolishPreview';
 
@@ -23,6 +23,18 @@ interface Props {
   onChange?: (content: string, images?: string[]) => void;
   autoFocus?: boolean;
 }
+
+// 适配器函数：将 Link schema 转换为 LinkType
+const linkToLinkType = (link: Link | null | undefined): LinkType | undefined => {
+  if (!link) return undefined;
+  return {
+    url: link.link, // link schema 使用 link 属性
+    text: link.text,
+    id: link.id,
+    memoId: link.memoId,
+    createdAt: link.createdAt,
+  };
+};
 export interface ReplaceTextFunction {
   (text: string, start: number, end: number, cursorOffset?: number): void
 }
@@ -51,7 +63,7 @@ const Editor = ({ onSubmit, defaultValue, onCancel, defaultImages, defaultLink, 
   const [loading, setLoading] = useSafeState(false);
   const [editorRef, setEditorRef] = useState<HTMLTextAreaElement | null>(null);
   const { files, uploadFile, removeFile, isUploading, reset, pushFile } = useFileUpload(defaultImages)
-  const [link, setLink] = useState<LinkType | undefined>(defaultLink)
+  const [link, setLink] = useState<LinkType | undefined>(linkToLinkType(defaultLink))
   
   // Track content changes for better persistence
   const [content, setContent] = useState(defaultValue || '');

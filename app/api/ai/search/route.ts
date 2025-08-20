@@ -1,4 +1,6 @@
-import { createClient } from "@libsql/client";
+import { db, client } from "../../../../src/db";
+import * as schema from "../../../../src/db/schema";
+import { sql } from "drizzle-orm";
 import {
     generateEmbedding,
     EmbeddingServiceError
@@ -7,19 +9,9 @@ import {
     callAI,
     AIServiceError
 } from "../../../../src/services/aiService";
-
-
-// --- Clients Setup ---
-const turso = createClient({
-    url: process.env.TURSO_DATABASE_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN!,
-});
-const TOP_K = 30; // Retrieve top 30 most similar memos
-const SIMILARITY_THRESHOLD = 0.4; // Cosine distance threshold, lower is more similar (0.4 -> 60% similarity)
-
-console.log("🔧 AI Search Route initialized with config:");
-console.log("- TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "✅ Set" : "❌ Missing");
-console.log("- SILICONFLOW_API_KEY:", process.env.SILICONFLOW_API_KEY ? "✅ Set" : "❌ Missing");
+import { withAICache } from "../../../../src/lib/aiCache";
+const TOP_K = 30; // Retrieve top 30 candidate memos for AI analysis
+const DISTANCE_THRESHOLD = 0.8; // More relaxed threshold for initial vector filtering
 
 /**
  * Wrapper function for generating embeddings using the embedding service
@@ -40,87 +32,81 @@ async function getEmbedding(text: string): Promise<number[]> {
 }
 
 /**
- * Performs vector similarity search in Turso database
+ * Performs vector similarity search in Turso database using hybrid approach with new schema
  */
 async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
-    console.log("🔍 Performing vector search...");
-
     try {
-        // First, let's check if we have a vector index created
-        const indexCheckResult = await turso.execute({
-            sql: "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE '%memos%' AND name LIKE '%embedding%';",
-            args: [],
+        
+        // 将Buffer转换为数组格式，以便在SQL中使用vector32()函数
+        const queryArray = Array.from(new Float32Array(queryVectorBuffer.buffer));
+        const vectorString = JSON.stringify(queryArray);
+        
+        // 使用原始 SQL 执行向量搜索，配合新的 vector32() 函数
+        const vectorSearchSQL = `
+            SELECT 
+                id,
+                content,
+                created_at,
+                updated_at,
+                vector_distance_cos(embedding, vector32(?)) as distance
+            FROM memos 
+            WHERE 
+                deleted_at IS NULL 
+                AND embedding IS NOT NULL
+                AND vector_distance_cos(embedding, vector32(?)) < ?
+            ORDER BY distance ASC
+            LIMIT ?
+        `;
+        
+        // 执行向量搜索查询
+        const result = await client.execute({
+            sql: vectorSearchSQL,
+            args: [vectorString, vectorString, DISTANCE_THRESHOLD, TOP_K]
         });
-
-        console.log("📋 Available vector indexes:", indexCheckResult.rows.map(row => row.name));
-
-        // Method 1: Try using vector index if available
-        if (indexCheckResult.rows.length > 0) {
-            try {
-                const indexName = indexCheckResult.rows[0].name as string;
-                console.log(`🎯 Using vector index: ${indexName}`);
-
-                const indexedSearchResult = await turso.execute({
-                    sql: `
-                        SELECT T.id, T.content, T.created_at, T.updated_at, V.distance as similarity_score
-                        FROM vector_top_k(?, ?, ?) AS V
-                        JOIN memos AS T ON T.id = V.id
-                        WHERE V.distance < ?
-                        ORDER BY V.distance ASC;
-                    `,
-                    args: [indexName, queryVectorBuffer, TOP_K, SIMILARITY_THRESHOLD],
-                });
-
-                if (indexedSearchResult.rows.length > 0) {
-                    return indexedSearchResult.rows;
-                }
-            } catch (indexError: any) {
-                console.log("⚠️ Vector index search failed, falling back to full table scan:", indexError.message);
-            }
-        }
-
-        // Method 2: Fallback to full table scan with distance calculation
-        console.log("🔄 Using full table scan for vector search...");
-        const fullScanResult = await turso.execute({
-            sql: `
-                SELECT id, content, created_at, updated_at,
-                       vector_distance_cos(embedding, ?) as similarity_score
-                FROM memos 
-                WHERE embedding IS NOT NULL AND vector_distance_cos(embedding, ?) < ?
-                ORDER BY similarity_score ASC
-                LIMIT ?;
-            `,
-            args: [queryVectorBuffer, queryVectorBuffer, SIMILARITY_THRESHOLD, TOP_K],
-        });
-
-        return fullScanResult.rows;
-
+        
+        // 转换结果格式
+        const searchResults = result.rows.map(row => ({
+            id: row[0] as string,
+            content: row[1] as string,
+            created_at: row[2] as string,
+            updated_at: row[3] as string,
+            distance: row[4] as number,
+            similarity_score: 1 - (row[4] as number) // 转换为相似度 (1 - cosine_distance)
+        }));
+        
+        // 由于已在SQL层过滤，直接返回结果
+        return searchResults;
+        
     } catch (error: any) {
-        console.error("❌ Vector search failed, trying random fallback...", error);
-        // Method 3: Final fallback - random selection of memos with embeddings
+        console.error("❌ Vector search failed, falling back to simple search:", error);
+        
+        // 如果向量搜索失败，回退到简单搜索
         try {
-            const fallbackResult = await turso.execute({
-                sql: `
-                    SELECT id, content, created_at, updated_at
-                    FROM memos 
-                    WHERE embedding IS NOT NULL
-                    ORDER BY RANDOM()
-                    LIMIT ?;
-                `,
-                args: [TOP_K],
-            });
+            const searchResult = await db
+                .select({
+                    id: schema.memos.id,
+                    content: schema.memos.content,
+                    created_at: schema.memos.createdAt,
+                    updated_at: schema.memos.updatedAt
+                })
+                .from(schema.memos)
+                .where(sql`${schema.memos.deletedAt} IS NULL`)
+                .orderBy(sql`${schema.memos.createdAt} DESC`)
+                .limit(TOP_K);
 
-            console.log("⚠️ Using random fallback due to previous search errors.");
-            return fallbackResult.rows;
+            return searchResult.map(memo => ({
+                ...memo,
+                similarity_score: 0.5 // 占位符相似度分数
+            }));
         } catch (fallbackError: any) {
-            console.error("❌ Random fallback failed:", fallbackError);
-            throw new Error(`All search methods failed. Primary error: ${error.message}. Fallback error: ${fallbackError.message}`);
+            console.error("❌ Fallback search also failed:", fallbackError);
+            throw new Error(`Search failed: ${error.message}`);
         }
     }
 }
 
 // Main API handler for the POST request
-export async function POST(req: Request) {
+export const POST = withAICache('search', async (req: Request) => {
     const startTime = Date.now();
     let query: string | undefined;
 
@@ -139,7 +125,6 @@ export async function POST(req: Request) {
         }
 
         const trimmedQuery = query.trim();
-        console.log(`\n🚀 AI Search started for query: "${trimmedQuery.substring(0, 50)}..."`);
 
         // 1. Vectorize the user's query
         const queryEmbedding = await getEmbedding(trimmedQuery);
@@ -150,7 +135,6 @@ export async function POST(req: Request) {
 
         if (searchResults.length === 0) {
             const duration = (Date.now() - startTime) / 1000;
-            console.log(`⚠️ No search results found. Responded in ${duration.toFixed(2)}s.`);
             return new Response(JSON.stringify({
                 answer: "🤔 我仔细翻找了你的笔记库，但没有发现与这个问题直接相关的内容。\n\n**建议尝试：**\n- 换个角度重新描述问题\n- 使用更具体或更宽泛的关键词\n- 确认相关内容是否已经记录在笔记中\n\n也许你可以先记录一些相关想法，让我下次能更好地帮助你！",
                 resultsCount: 0,
@@ -165,7 +149,6 @@ export async function POST(req: Request) {
         const sources = searchResults.map(row => ({
             id: String(row.id),
             content: String(row.content),
-            similarity: row.similarity_score ? parseFloat(String(row.similarity_score)) : null,
             preview: String(row.content).substring(0, 150) + (String(row.content).length > 150 ? "..." : ""),
             createdAt: row.created_at ? String(row.created_at) : null,
             updatedAt: row.updated_at ? String(row.updated_at) : null,
@@ -177,50 +160,55 @@ export async function POST(req: Request) {
             }) : '未知日期'
         }));
 
-        // If no sources meet the similarity threshold, return early
-        if (sources.length === 0) {
-            const duration = (Date.now() - startTime) / 1000;
-            console.log(`⚠️ No relevant sources found. Responded in ${duration.toFixed(2)}s.`);
-            return new Response(JSON.stringify({
-                answer: "🔍 我找到了一些笔记内容，但它们与你的问题关联度不够高（相似度<50%）。\n\n**为了获得更精准的结果，建议：**\n- 尝试使用更具体的描述或关键词\n- 换个角度重新组织问题\n- 检查是否有相关笔记使用了不同的表达方式\n\n你的问题很有价值，也许可以先记录一些相关思考，帮助我未来更好地理解你的需求！",
-                resultsCount: 0,
-                sources: []
-            }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
-
         // Use filtered sources for context generation
-        const context = sources.map(source => source.content).join("\n\n---\n\n");
-        console.log(`📊 Found ${sources.length} sources. Generating AI answer...`);
+        const candidatesForAI = sources.map((source, index) => 
+            `[${index + 1}] ID: ${source.id}\n内容: ${source.content}\n创建时间: ${source.displayDate}\n---`
+        ).join('\n\n');
 
-        // 3. Build the prompt for the language model
+        // 3. Build the prompt for AI analysis and scoring
         const rolePrompt = `
-        你是一个智能的笔记助手，你的任务是基于用户提供的笔记内容，为其查询提供一个有深度、有启发的回答。
+        你是一个智能的笔记助手。你需要完成两个任务：1) 分析笔记与查询的相关性并评分；2) 基于相关的笔记生成回答。
 
-        ## 核心任务
-        仔细分析以下用---分隔的笔记内容，然后回答用户的问题。
+        ## 用户查询
+        ${trimmedQuery}
 
-        ## 相关笔记内容：
-        ---
-        ${context}
-        ---
+        ## 候选笔记内容
+        ${candidatesForAI}
+
+        ## 任务要求
+
+        ### 第一步：相关性分析和评分
+        为每个候选笔记评估与查询的相关性，评分标准：
+        - **0.9-1.0**: 直接回答查询问题，高度相关
+        - **0.7-0.9**: 与查询主题密切相关，有重要参考价值  
+        - **0.5-0.7**: 与查询有一定关联，可作为补充信息
+        - **0.3-0.5**: 间接相关，背景信息
+        - **0.0-0.3**: 基本无关或关联度极低
+
+        ### 第二步：生成智能回答
+        基于我的笔记内容，为用户提供有深度、有启发的回答，不要自我发散，回答控制在200字以内。
 
         ## 输出格式要求
-        你必须严格按照以下JSON格式返回你的回答，将你的所有分析和洞察都放在 "answer" 字段中：
+        请严格按照以下JSON格式返回：
         {
-          "answer": "在这里填写你整合、分析后生成的回答内容..."
+          "relevanceScores": [
+            {
+              "id": "笔记ID",
+              "score": 相关性评分(0-1)
+            }
+          ],
+          "answer": "基于最相关笔记生成的智能回答",
+          "selectedSources": ["最相关的笔记ID列表"]
         }
 
-        ## 回答指引：
-        1.  **核心回答**：直接回应用户的问题。
-        2.  **整合信息**：将分散的笔记内容整合成连贯的叙述。
-        3.  **引用佐证**：可以引用具体的笔记片段来支持你的观点。
-        4.  **保持简洁**：避免冗长和不相关的细节。
-        5.  **启发性**：以温暖、启发性的语气，像一个了解用户的朋友一样进行回应。
+        ## 回答指引
+        1. **准确评分**: 严格按照相关性标准评分，不要过于宽松
+        2. **核心回答**: 直接回应用户的问题
+        3. **整合信息**: 将最相关的笔记内容整合成连贯的叙述
+        4. **引用佐证**: 可以引用具体的笔记片段支持观点
+        5. **启发性**: 以温暖、启发性的语气回应
 
-        现在，请根据以上要求，为用户的问题生成回答。
+        现在请开始分析和回答。
         `;
 
         // 4. Generate the answer using AI API
@@ -235,27 +223,59 @@ export async function POST(req: Request) {
 
         // Parse the JSON response from AI
         let answer = '';
+        let aiScoredSources: any[] = [];
+        
         try {
             const jsonResponse = JSON.parse(response.content);
             answer = jsonResponse.answer;
+            
             if (!answer) {
                 throw new Error("AI response JSON does not contain 'answer' field.");
             }
+
+            // Process AI relevance scores and update sources
+            if (jsonResponse.relevanceScores && Array.isArray(jsonResponse.relevanceScores)) {
+                const scoreMap = new Map();
+                jsonResponse.relevanceScores.forEach((score: any) => {
+                    scoreMap.set(score.id, {
+                        aiScore: score.score
+                    });
+                });
+
+                // Update sources with AI scores and filter by relevance
+                aiScoredSources = sources
+                    .map(source => ({
+                        ...source,
+                        aiRelevanceScore: scoreMap.get(source.id)?.aiScore || 0
+                    }))
+                    .filter(source => source.aiRelevanceScore >= 0.3) // Filter by AI score threshold
+                    .sort((a, b) => b.aiRelevanceScore - a.aiRelevanceScore); // Sort by AI relevance
+            } else {
+                // Fallback to original sources if AI scoring fails
+                aiScoredSources = sources.map(source => ({
+                    ...source,
+                    aiRelevanceScore: 0.5 // Default relevance score when AI fails
+                }));
+            }
+            
         } catch (e: any) {
             console.error("❌ Failed to parse AI JSON response:", e.message);
             // Fallback to using the raw content if parsing fails
             answer = response.content;
+            aiScoredSources = sources.map(source => ({
+                ...source,
+                aiRelevanceScore: 0.5 // Default relevance score when JSON parsing fails
+            }));
         }
 
         const duration = (Date.now() - startTime) / 1000;
-        console.log(`\n🎉 AI Search completed successfully in ${duration.toFixed(2)}s. Found ${sources.length} sources.`);
 
         // 5. Return the complete response as JSON
         return new Response(JSON.stringify({
             answer,
-            resultsCount: sources.length,
+            resultsCount: aiScoredSources.length,
             processingTime: duration,
-            sources: sources
+            sources: aiScoredSources
         }), {
             status: 200,
             headers: {
@@ -285,4 +305,4 @@ export async function POST(req: Request) {
             },
         });
     }
-} 
+});

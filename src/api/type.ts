@@ -1,7 +1,33 @@
-import { Memo } from "@prisma/client";
-import { Tag } from "@prisma/client";
-import { Link } from "@prisma/client";
 import { LinkType } from "../components/Editor/LinkAction";
+import type { Tag, Link, NewTag, NewLink } from "../db/schema";
+
+// 导出数据库类型（除了 NewMemo，我们会自定义）
+export type { Tag, Link, NewTag, NewLink };
+
+// 前端使用的 Memo 类型，不包含 embedding 字段
+export interface Memo {
+  id: string;
+  content: string;
+  images: string[];  // 在 API 层面已经被解析为数组
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  // embedding 字段已移除 - 仅在服务端 AI 功能中使用
+}
+
+// 扩展 Memo 类型以便与前端兼容
+export interface MemoWithTags extends Memo {
+  tags: Tag[];
+  link?: Link | null;
+}
+
+// 自定义 NewMemo 接口，用于前端创建 memo
+export interface NewMemo {
+  content: string;
+  images?: string[];
+  link?: LinkType;
+  tags?: string[];
+}
 
 interface Filter {
   conjunction?: "and" | "or";
@@ -31,19 +57,11 @@ export interface MemosCount {
 }
 
 
-type Note = Memo & {
+export type Note = Memo & {
   tags: Tag[];
   link?: Link;
 }
 
-export interface NewMemo {
-  content: string;
-  images?: string[];
-  link?: LinkType
-  created_time?: string;
-  last_edited_time?: string;
-  tags?: string[];
-}
 export interface TagWithCount extends Tag {
   memoCount: number;
 }
@@ -101,4 +119,4 @@ export interface UpdateMemoRequest {
 
 
 
-export type { Filter, Note };
+export type { Filter };

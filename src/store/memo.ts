@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer';
 import { getMemoByIdAction, getMemosDataActions } from '../api/dbActions';
 import useFilterStore, { ImageFilter } from './filter';
 import { Note } from '../api/type';
-import { Tag } from '@prisma/client';
+import { Tag } from '../db/schema';
 import { format } from 'date-fns';
 
 interface MemoStore {

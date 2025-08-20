@@ -19,10 +19,8 @@ import { Note } from '../api/type';
 interface RelatedMemo {
     id: string;
     content: string;
-    similarity: number | null;
-    preview: string;
+    aiRelevanceScore: number;
     createdAt: string | null;
-    displayDate: string;
     tags: string[];
 }
 
@@ -51,6 +49,20 @@ export function RelatedMemosDialog({
     const [relatedMemos, setRelatedMemos] = useState<RelatedMemo[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [processingTime, setProcessingTime] = useState<number | null>(null);
+
+    // Helper function to format date
+    const formatDisplayDate = (dateString: string | null): string => {
+        if (!dateString) return '未知日期';
+        try {
+            return new Date(dateString).toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        } catch {
+            return '未知日期';
+        }
+    };
 
     const fetchRelatedMemos = async () => {
         if (!memoId) return;
@@ -120,7 +132,6 @@ export function RelatedMemosDialog({
     const handleRetry = () => {
         fetchRelatedMemos();
     };
-
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
@@ -130,7 +141,7 @@ export function RelatedMemosDialog({
                         相关笔记
                     </DialogTitle>
                     <DialogDescription>
-                        基于内容相似度发现的相关笔记（相似度 &gt; 50%）
+                        基于AI智能分析发现的相关笔记（相关性 &gt; 40%）
                         {processingTime && (
                             <span className="text-xs text-muted-foreground ml-2">
                                 处理时间: {processingTime.toFixed(2)}s
@@ -158,11 +169,7 @@ export function RelatedMemosDialog({
                                                 </span>
                                             </div>
                                             <div className="text-xs text-muted-foreground">
-                                                📅 {originalMemo.createdAt ? new Date(originalMemo.createdAt).toLocaleDateString('zh-CN', {
-                                                    year: 'numeric',
-                                                    month: 'short',
-                                                    day: 'numeric'
-                                                }) : '未知日期'}
+                                                📅 {formatDisplayDate(originalMemo.createdAt)}
                                             </div>
                                         </div>
 
@@ -198,7 +205,7 @@ export function RelatedMemosDialog({
                                 <Loader2 className="w-8 h-8 animate-spin mb-4 text-muted-foreground" />
                                 <p className="text-muted-foreground">正在分析相关笔记...</p>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    使用AI向量搜索技术匹配相似内容
+                                    使用AI智能分析技术匹配相关内容
                                 </p>
                             </div>
                         )}
@@ -222,7 +229,7 @@ export function RelatedMemosDialog({
                                 <Icon.Search className="w-8 h-8 mb-4 text-muted-foreground" />
                                 <p className="text-muted-foreground mb-2">没有找到相关笔记</p>
                                 <p className="text-xs text-muted-foreground max-w-md">
-                                    可能是因为：内容相似度不够高（&lt;50%）、其他笔记缺少向量嵌入、或者这是一个独特的笔记主题。
+                                    可能是因为：AI评估的相关性不够高（&lt;40%）、其他笔记缺少向量嵌入、或者这是一个独特的笔记主题。
                                 </p>
                             </div>
                         )}
@@ -243,20 +250,18 @@ export function RelatedMemosDialog({
                                             onClick={() => handleMemoClick(memo.id)}
                                         >
                                             <div className="space-y-3">
-                                                {/* Header with similarity and date */}
+                                                {/* Header with similarity_score and date */}
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                                         <span className="bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">
                                                             #{index + 1}
                                                         </span>
-                                                        {memo.similarity !== null && (
-                                                            <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
-                                                                📊 相似度: {((1 - memo.similarity) * 100).toFixed(1)}%
-                                                            </span>
-                                                        )}
+                                                        <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
+                                                            🎯 AI相关性: {(memo.aiRelevanceScore * 100).toFixed(0)}%
+                                                        </span>
                                                     </div>
                                                     <div className="text-xs text-muted-foreground">
-                                                        📅 {memo.displayDate}
+                                                        📅 {formatDisplayDate(memo.createdAt)}
                                                     </div>
                                                 </div>
 

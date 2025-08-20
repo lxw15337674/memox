@@ -163,8 +163,11 @@ export async function PUT(
         // 转换为Server Action需要的格式
         const updateData = {
             content: validatedData.content || existingMemo.content,
-            images: validatedData.images !== undefined ? validatedData.images : existingMemo.images,
-            link: validatedData.link !== undefined ? validatedData.link : (existingMemo.link || undefined),
+            images: validatedData.images !== undefined ? validatedData.images : (Array.isArray(existingMemo.images) ? existingMemo.images : []),
+            link: validatedData.link !== undefined ? validatedData.link : (existingMemo.link ? {
+                url: existingMemo.link.link,
+                text: existingMemo.link.text
+            } : undefined),
             tags: validatedData.tags || existingMemo.tags.map(tag => tag.name),
         };
 

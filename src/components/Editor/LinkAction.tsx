@@ -14,7 +14,7 @@ export interface LinkType {
     text: string | null;
     id?: string;
     memoId?: string;
-    createdAt?: Date;
+    createdAt?: string; // 改为 string 以匹配 Drizzle 的 text 类型
 }
 interface Props {
     link: LinkType | undefined

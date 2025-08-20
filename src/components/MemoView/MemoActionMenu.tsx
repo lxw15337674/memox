@@ -60,11 +60,11 @@ const MemoActionMenu = ({ memoId, originalMemo, onEdit, parsedContent }: Props) 
       });
       const memo = await regenerateMemeTags(memoId);
       if (memo) {
-        updateMemo(memoId, memo as Note);
+        updateMemo(memoId, { ...memo, embedding: null } as unknown as Note);
       }
       toast({
         title: "标签生成成功",
-        description: `生成的标签为: ${memo?.tags?.map(item=>item.name).join(", ")}`,
+        description: `生成的标签为: ${(memo as any)?.tags?.map((item: any)=>item.name).join(", ")}`,
         duration: 1000
       });
     } catch (error) {

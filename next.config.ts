@@ -6,6 +6,8 @@ const withSerwist = withSerwistInit({
     // use something else that works, such as "service-worker/index.ts".
     swSrc: "app/sw.ts",
     swDest: "public/sw.js",
+    // 在非生产环境中禁用 Serwist，避免与 Turbopack 冲突
+    disable: process.env.NODE_ENV !== "production",
 });
 
 const baseConfig: NextConfig = {
@@ -37,17 +39,11 @@ const baseConfig: NextConfig = {
                 source: '/upload',
                 destination: 'https://gallery233.pages.dev/upload',
             },
-            {
-                source: '/ai',
-                destination: 'https://bhwa-hk-api.zeabur.app',
-            }
         ];
     },
 };
 
 // 只在生产环境中启用 Serwist
-const nextConfig = process.env.NODE_ENV === 'production'
-    ? withSerwist(baseConfig)
-    : baseConfig;
+const nextConfig = withSerwist(baseConfig)
 
 export default nextConfig;

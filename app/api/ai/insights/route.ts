@@ -67,7 +67,7 @@ const comprehensiveInsightPrompt = `
   "overview": "对用户整体思考模式的简洁总结（不超过100字）",
   "insights": [
     {
-      "type": "思考模式|情感规律|主题关联|回避盲点|成长轨迹",
+      "type": "思考模式|主题关联|回避盲点",
       "title": "简短的洞察标题",
       "content": "详细洞察内容",
       "evidence": "具体例证",

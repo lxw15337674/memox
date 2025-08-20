@@ -166,50 +166,44 @@ export const POST = withAICache('search', async (req: Request) => {
         ).join('\n\n');
 
         // 3. Build the prompt for AI analysis and scoring
-        const rolePrompt = `
-        你是一个智能的笔记助手。你需要完成两个任务：1) 分析笔记与查询的相关性并评分；2) 基于相关的笔记生成回答。
+        const rolePrompt = `你是一个智能的笔记助手。你需要完成两个任务：1) 分析笔记与查询的相关性并评分；2) 基于相关的笔记生成回答。
 
-        ## 用户查询
-        ${trimmedQuery}
+## 用户查询
+${trimmedQuery}
 
-        ## 候选笔记内容
-        ${candidatesForAI}
+## 候选笔记内容
+${candidatesForAI}
 
-        ## 任务要求
+## 任务要求
 
-        ### 第一步：相关性分析和评分
-        为每个候选笔记评估与查询的相关性，评分标准：
-        - **0.9-1.0**: 直接回答查询问题，高度相关
-        - **0.7-0.9**: 与查询主题密切相关，有重要参考价值  
-        - **0.5-0.7**: 与查询有一定关联，可作为补充信息
-        - **0.3-0.5**: 间接相关，背景信息
-        - **0.0-0.3**: 基本无关或关联度极低
+### 第一步：相关性分析和评分
+为每个候选笔记评估与查询的相关性，评分标准：
+- **0.9-1.0**: 直接回答查询问题，高度相关
+- **0.7-0.9**: 与查询主题密切相关，有重要参考价值  
+- **0.5-0.7**: 与查询有一定关联，可作为补充信息
+- **0.3-0.5**: 间接相关，背景信息
+- **0.0-0.3**: 基本无关或关联度极低
 
-        ### 第二步：生成智能回答
-        基于我的笔记内容，为用户提供有深度、有启发的回答，不要自我发散，回答控制在200字以内。
+### 第二步：生成智能回答
+基于我的笔记内容，为用户提供有深度、有启发的回答，不要自我发散，回答控制在200字以内。
 
-        ## 输出格式要求
-        请严格按照以下JSON格式返回：
-        {
-          "relevanceScores": [
-            {
-              "id": "笔记ID",
-              "score": 相关性评分(0-1)
-            }
-          ],
-          "answer": "基于最相关笔记生成的智能回答",
-          "selectedSources": ["最相关的笔记ID列表"]
-        }
+## 输出格式要求
+请严格按照以下JSON格式返回：
+{
+  "scores": [0.8, 0.6, 0.3, ...],
+  "answer": "基于最相关笔记生成的智能回答"
+}
 
-        ## 回答指引
-        1. **准确评分**: 严格按照相关性标准评分，不要过于宽松
-        2. **核心回答**: 直接回应用户的问题
-        3. **整合信息**: 将最相关的笔记内容整合成连贯的叙述
-        4. **引用佐证**: 可以引用具体的笔记片段支持观点
-        5. **启发性**: 以温暖、启发性的语气回应
+注意：scores数组必须严格按照输入笔记的顺序返回评分，长度与输入笔记数量完全一致。
 
-        现在请开始分析和回答。
-        `;
+## 回答指引
+1. **准确评分**: 严格按照相关性标准评分，不要过于宽松
+2. **核心回答**: 直接回应用户的问题
+3. **整合信息**: 将最相关的笔记内容整合成连贯的叙述
+4. **引用佐证**: 可以引用具体的笔记片段支持观点
+5. **启发性**: 以温暖、启发性的语气回应
+
+现在请开始分析和回答。`;
 
         // 4. Generate the answer using AI API
         const response = await callAI({
@@ -233,20 +227,13 @@ export const POST = withAICache('search', async (req: Request) => {
                 throw new Error("AI response JSON does not contain 'answer' field.");
             }
 
-            // Process AI relevance scores and update sources
-            if (jsonResponse.relevanceScores && Array.isArray(jsonResponse.relevanceScores)) {
-                const scoreMap = new Map();
-                jsonResponse.relevanceScores.forEach((score: any) => {
-                    scoreMap.set(score.id, {
-                        aiScore: score.score
-                    });
-                });
-
-                // Update sources with AI scores and filter by relevance
+            // Process AI relevance scores using simplified array format
+            if (jsonResponse.scores && Array.isArray(jsonResponse.scores)) {
+                // Update sources with AI scores using array index
                 aiScoredSources = sources
-                    .map(source => ({
+                    .map((source, index) => ({
                         ...source,
-                        aiRelevanceScore: scoreMap.get(source.id)?.aiScore || 0
+                        aiRelevanceScore: Number(jsonResponse.scores[index]) || 0
                     }))
                     .filter(source => source.aiRelevanceScore >= 0.3) // Filter by AI score threshold
                     .sort((a, b) => b.aiRelevanceScore - a.aiRelevanceScore); // Sort by AI relevance

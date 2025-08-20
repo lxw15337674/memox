@@ -257,7 +257,7 @@ export function RelatedMemosDialog({
                                                             #{index + 1}
                                                         </span>
                                                         <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
-                                                            🎯 AI相关性: {(memo.aiRelevanceScore * 100).toFixed(0)}%
+                                                            🎯 相关性: {(memo.aiRelevanceScore * 100).toFixed(0)}%
                                                         </span>
                                                     </div>
                                                     <div className="text-xs text-muted-foreground">

@@ -110,20 +110,15 @@ async function analyzeRelatedMemosWithAI(
 5. **语义深度**：不仅看关键词，更要理解深层含义
 
 ## 输出要求：
-- 必须返回有效的JSON格式
-- 每个笔记都必须给出评分
+- 必须严格按照输入笔记的顺序返回评分
+- 返回一个包含所有评分的数组，每个位置对应输入中相同位置的笔记
 - 评分要准确反映真实的相关程度
 - 宁可评分保守，也不要虚高
 
-请返回JSON格式：
-{
-  "analysis": [
-    {
-      "id": "笔记ID",
-      "relevanceScore": 相关性评分(0-1的小数),
-    }
-  ]
-}`
+请直接返回评分数组，格式如下：
+[0.8, 0.6, 0.3, 0.1, ...]
+
+注意：数组长度必须与输入笔记数量完全一致，第i个评分对应第i个输入笔记。`
             },
             {
                 role: 'user',
@@ -133,7 +128,7 @@ ${currentMemoContent}
 ## 候选相关笔记：
 ${memosText}
 
-请仔细分析每个候选笔记与当前笔记的相关性，基于内容的深层语义而非表面关键词。给出精确的相关性评分并返回JSON结果。`
+请仔细分析每个候选笔记与当前笔记的相关性，基于内容的深层语义而非表面关键词。严格按照输入顺序返回相关性评分数组。`
             }
         ];
 
@@ -142,17 +137,14 @@ ${memosText}
             temperature: 0.3,
         });
 
-        // 解析AI响应
-        const analysisResult = JSON.parse(aiResponse.content);
-        console.log(analysisResult)
-        // 将AI分析结果与原始数据合并
-        const enhancedMemos = memosForAnalysis.map(memo => {
-            const aiAnalysis = analysisResult.analysis?.find((a: any) => a.id === memo.id);
-            return {
-                ...memo,
-                aiRelevanceScore: aiAnalysis?.relevanceScore || 0
-            };
-        });
+        // 解析AI响应 - 直接获取评分数组
+        const scores = JSON.parse(aiResponse.content);
+        
+        // 将AI评分与原始数据合并
+        const enhancedMemos = memosForAnalysis.map((memo, index) => ({
+            ...memo,
+            aiRelevanceScore: Number(scores[index]) || 0
+        }));
 
         // 按AI相关性评分排序并返回
         return enhancedMemos

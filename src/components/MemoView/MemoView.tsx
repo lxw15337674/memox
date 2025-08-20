@@ -110,7 +110,6 @@ const MemoView = ({
       onCancel={handleCancel}
     />
   }
-  console.log(currentMemo, parsedImages) 
   return (
     <Card id={`memo-${id}`} className={`p-3 relative h-full flex flex-col ${isLoading ? 'opacity-70' : ''}`}>
       <div className="flex justify-between items-start flex-1">

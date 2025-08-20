@@ -9,6 +9,7 @@ import {
     callAI,
     AIServiceError
 } from "../../../../src/services/aiService";
+import { withAICache } from "../../../../src/lib/aiCache";
 const TOP_K = 30; // Retrieve top 30 candidate memos for AI analysis
 const DISTANCE_THRESHOLD = 0.8; // More relaxed threshold for initial vector filtering
 
@@ -105,7 +106,7 @@ async function performVectorSearch(queryVectorBuffer: Buffer): Promise<any[]> {
 }
 
 // Main API handler for the POST request
-export async function POST(req: Request) {
+export const POST = withAICache('search', async (req: Request) => {
     const startTime = Date.now();
     let query: string | undefined;
 
@@ -304,4 +305,4 @@ export async function POST(req: Request) {
             },
         });
     }
-}
+});

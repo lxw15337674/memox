@@ -10,6 +10,33 @@ import { waitUntil } from '@vercel/functions';
 import { eq, and, desc, asc, count, isNull, isNotNull, gte, lt, inArray, like, sql } from 'drizzle-orm';
 import { Desc } from '../store/filter';
 import { format } from 'date-fns';
+import { LinkType } from '../components/Editor/LinkAction';
+
+// URL验证函数
+function isValidURL(url: string): boolean {
+    if (!url || typeof url !== 'string' || url.trim().length === 0) {
+        return false;
+    }
+    
+    try {
+        const urlObj = new URL(url.trim());
+        return ['http:', 'https:'].includes(urlObj.protocol);
+    } catch {
+        return false;
+    }
+}
+
+// Link清理函数 - 如果URL无效则返回null
+function sanitizeLink(link: LinkType | undefined): LinkType | null {
+    if (!link || !link.url || !isValidURL(link.url)) {
+        return null;
+    }
+    
+    return {
+        url: link.url.trim(),
+        text: link.text || ''
+    };
+}
 
 // 前端数据查询选择器 - 不包含 embedding 字段
 const frontendMemoSelect = {
@@ -200,6 +227,9 @@ export const createNewMemo = async (newMemo: NewMemo) => {
         const { content, images, link, tags } = newMemo;
         const tagNames: string[] = tags && tags.length > 0 ? tags : [];
         
+        // 清理和验证link
+        const sanitizedLink = sanitizeLink(link);
+        
         // 使用事务包装所有数据库操作，减少数据库往返
         const memo = await client.transaction(async (tx) => {
             // 创建memo
@@ -248,13 +278,13 @@ export const createNewMemo = async (newMemo: NewMemo) => {
 
             // 处理链接
             let memoLink = null;
-            if (link) {
+            if (sanitizedLink) {
                 [memoLink] = await tx
                     .insert(schema.links)
                     .values({
                         id: crypto.randomUUID(),
-                        link: link.url,
-                        text: link.text,
+                        link: sanitizedLink.url,
+                        text: sanitizedLink.text,
                         memoId: newMemo.id,
                         createdAt: new Date().toISOString()
                     })
@@ -348,6 +378,9 @@ export const getMemoByIdAction = async (id: string) => {
 export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
     try {
         const { content, images, link } = newMemo;
+        
+        // 清理和验证link
+        const sanitizedLink = sanitizeLink(link);
 
         // 使用事务优化数据库操作，减少往返次数
         const updatedMemo = await client.transaction(async (tx) => {
@@ -372,7 +405,7 @@ export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
                 .where(eq(schema.memos.id, id));
 
             // 处理链接
-            if (link) {
+            if (sanitizedLink) {
                 // 删除现有链接
                 await tx
                     .delete(schema.links)
@@ -383,13 +416,13 @@ export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
                     .insert(schema.links)
                     .values({
                         id: crypto.randomUUID(),
-                        link: link.url,
-                        text: link.text,
+                        link: sanitizedLink.url,
+                        text: sanitizedLink.text,
                         memoId: id,
                         createdAt: new Date().toISOString()
                     });
             } else {
-                // 如果没有链接，删除现有链接
+                // 如果没有有效链接，删除现有链接
                 await tx
                     .delete(schema.links)
                     .where(eq(schema.links.memoId, id));

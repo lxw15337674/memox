@@ -181,11 +181,8 @@ export async function PUT(
             );
         }
 
-        // 获取更新后的memo
-        const updatedMemo = await getMemoByIdAction(id);
-
         return NextResponse.json(
-            createApiResponse(true, updatedMemo, '更新memo成功'),
+            createApiResponse(true, '更新memo成功'),
             { status: 200 }
         );
 

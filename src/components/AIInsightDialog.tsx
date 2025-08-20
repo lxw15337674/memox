@@ -189,17 +189,6 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
                                 </CardContent>
                             </Card>
 
-                            {/* 主要洞察 */}
-                            <div>
-                                <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
-                                    <Icon.Lightbulb size={16} />
-                                    核心洞察 ({insightData.insights.length})
-                                </h3>
-                                {insightData.insights.map((insight, index) => (
-                                    <InsightCard key={index} insight={insight} />
-                                ))}
-                            </div>
-
                             {/* 数据模式 */}
                             <Card>
                                 <CardHeader className="pb-2">
@@ -227,6 +216,17 @@ export const AIInsightDialog: React.FC<AIInsightDialogProps> = ({ open, onOpenCh
                                     </div>
                                 </CardContent>
                             </Card>
+
+                            {/* 主要洞察 */}
+                            <div>
+                                <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                                    <Icon.Lightbulb size={16} />
+                                    核心洞察 ({insightData.insights.length})
+                                </h3>
+                                {insightData.insights.map((insight, index) => (
+                                    <InsightCard key={index} insight={insight} />
+                                ))}
+                            </div>
 
                             {/* 思考问题 */}
                             {insightData.questions_to_ponder.length > 0 && (

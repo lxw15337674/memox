@@ -41,6 +41,7 @@ const NewMemoEditor: React.FC = () => {
                 ...newMemo,
                 link: newMemo.link || undefined
             };
+             addMemoToStore(noteForStore);
             // 更新计数统计
             updateCountsAfterMemoAdded(noteForStore);
             toast({

@@ -92,23 +92,10 @@ const useMemoStore = create<MemoStore>()(
           // 检查memo是否已存在，避免重复
           const existingIndex = state.memos.findIndex(item => item.id === memo.id);
           if (existingIndex !== -1) {
-            result = { added: false, reason: 'already_exists' };
             return;
           }
-
-          // 检查是否满足当前筛选条件
-          const filterState = useFilterStore.getState();
-          const shouldShow = isMatchingCurrentFilter(memo, filterState);
-
-          if (shouldShow) {
-            // 新memo添加到最前面
-            state.memos.unshift(memo);
-            result = { added: true, reason: undefined };
-          } else {
-            result = { added: false, reason: 'filter_mismatch' };
-          }
-
-          // 无论是否显示，都更新总数
+          state.memos.unshift(memo);
+          result = { added: true, reason: undefined };
           state.databases.total += 1;
         });
 

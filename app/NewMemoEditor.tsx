@@ -2,10 +2,9 @@
 import React from 'react';
 import Editor from '@/components/Editor';
 import { useRequest, useSessionStorageState } from 'ahooks';
-import { createNewMemo, regenerateMemeTags } from '../src/api/dbActions';
+import { createNewMemo } from '../src/api/dbActions';
 import useMemoStore from '../src/store/memo';
 import useCountStore from '../src/store/count';
-import useFilterStore from '../src/store/filter';
 import { useToast } from '../src/components/ui/use-toast';
 import { startConfettiAnimation } from '../src/lib/utils';
 

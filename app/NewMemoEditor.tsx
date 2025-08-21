@@ -19,7 +19,7 @@ const NewMemoEditor: React.FC = () => {
         defaultValue: { content: '', images: [] }
     });
     
-    const { addMemoToStore } = useMemoStore();
+    const { addMemoToStore, updateMemo } = useMemoStore();
     const { updateCountsAfterMemoAdded } = useCountStore();
     const { toast } = useToast();
     
@@ -50,6 +50,15 @@ const NewMemoEditor: React.FC = () => {
             });
             startConfettiAnimation();
             clearCache();
+            // 延迟3秒后更新memo以获取新生成的标签
+            setTimeout(async () => {
+                try {
+                    updateMemo(newMemo.id);
+                    console.log(`更新memo ${newMemo.id} 以获取最新标签`);
+                } catch (error) {
+                    console.error('延迟更新memo失败:', error);
+                }
+            }, 3000);
         }
     });
 

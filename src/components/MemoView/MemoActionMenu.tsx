@@ -58,15 +58,16 @@ const MemoActionMenu = ({ memoId, originalMemo, onEdit, parsedContent }: Props) 
         title: "标签重新生成中",
         duration: 1000
       });
-      const memo = await regenerateMemeTags(memoId);
-      if (memo) {
-        updateMemo(memoId, { ...memo, embedding: null } as unknown as Note);
+      const result = await regenerateMemeTags(memoId);
+      if (result) {
+        // 重新查询完整的 memo 数据而不是直接使用返回值
+        updateMemo(memoId);
+        toast({
+          title: "标签生成成功",
+          description: `生成的标签为: ${(result as any).tags?.map((item: any)=>item.name).join(", ") || "无"}`,
+          duration: 1000
+        });
       }
-      toast({
-        title: "标签生成成功",
-        description: `生成的标签为: ${(memo as any)?.tags?.map((item: any)=>item.name).join(", ")}`,
-        duration: 1000
-      });
     } catch (error) {
       toast({
         variant: "destructive",

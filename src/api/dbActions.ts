@@ -519,38 +519,38 @@ export const getTagsWithCountAction = async () => {
 // 获取按日期分组的笔记数量，获取笔记总数，获取记录天数
 export const getCountAction = async (): Promise<MemosCount> => {
     try {
-        // 获取所有笔记
-        const memos = await client
-            .select({ createdAt: schema.memos.createdAt })
-            .from(schema.memos)
-            .where(isNull(schema.memos.deletedAt))
-            .orderBy(asc(schema.memos.createdAt));
+        // 尝试从缓存表读取统计数据
+        const cachedStats = await client
+            .select()
+            .from(schema.memoStatistics)
+            .where(eq(schema.memoStatistics.id, 'latest'))
+            .limit(1);
 
-        // 按日期分组统计
-        const groupByDate = memos.reduce((acc: Record<string, number>, memo) => {
-            const date = format(new Date(memo.createdAt), 'yyyy/MM/dd');
-            acc[date] = (acc[date] || 0) + 1;
-            return acc;
-        }, {});
+        if (cachedStats.length > 0) {
+            const stats = cachedStats[0];
+            const dailyStats = JSON.parse(stats.dailyStats);
+            
+            return {
+                dailyStats,
+                total: parseInt(stats.totalMemos),
+                daysCount: parseInt(stats.totalDays),
+                totalWords: parseInt(stats.totalWords),
+                lastUpdated: stats.calculatedAt
+            };
+        }
 
-        // 计算总数和记录天数
-        const total = memos.length;
-        const daysCount = Object.keys(groupByDate).length;
-
-        // 获取每日统计数据
-        const dailyStats = Object.entries(groupByDate).map(([date, count]) => ({
-            date,
-            count
-        }));
-
+        // 如果没有缓存数据，返回默认值
+        console.warn('没有找到缓存的统计数据，返回默认值');
         return {
-            dailyStats,
-            total,
-            daysCount
+            dailyStats: [],
+            total: 0,
+            daysCount: 0,
+            totalWords: 0,
+            lastUpdated: new Date().toISOString()
         };
     } catch (error) {
-        console.error("获取按日期分组的笔记失败:", error);
-        throw new Error("获取笔记数据失败");
+        console.error("获取统计数据失败:", error);
+        throw new Error("获取统计数据失败");
     }
 };
 

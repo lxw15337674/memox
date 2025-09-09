@@ -27,6 +27,13 @@ const Count: React.FC = () => {
       </div>
       <div className="w-full flex justify-between items-center">
         <div className="w-full flex justify-start items-center">
+          <Icon.FileText className="w-4 h-auto mr-1" />
+          <span className="block text-base sm:text-sm">字数</span>
+        </div>
+        <span className="font-mono">{memosCount.totalWords?.toLocaleString() ?? 0}</span>
+      </div>
+      <div className="w-full flex justify-between items-center">
+        <div className="w-full flex justify-start items-center">
           <Icon.Hash className="w-4 h-auto mr-1" />
           <span className="block text-base sm:text-sm">标签</span>
         </div>

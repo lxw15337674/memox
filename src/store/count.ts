@@ -18,7 +18,9 @@ const useCountStore = create<MemoStore>()(
         memosCount: {
             dailyStats: [],
             total: 0,
-            daysCount: 0
+            daysCount: 0,
+            totalWords: 0,
+            lastUpdated: new Date().toISOString()
         },
         initializeWithServerData: (tags: TagWithCount[], counts: MemosCount) => {
             set({

@@ -20,7 +20,13 @@ export default async function Home() {
     }),
     getCountAction().catch(error => {
       console.error('Failed to fetch counts:', error);
-      return { dailyStats: [], total: 0, daysCount: 0 };
+      return { 
+        dailyStats: [], 
+        total: 0, 
+        daysCount: 0, 
+        totalWords: 0, 
+        lastUpdated: new Date().toISOString() 
+      };
     })
   ]);
 

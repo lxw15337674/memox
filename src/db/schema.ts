@@ -75,6 +75,17 @@ export const syncMetadata = sqliteTable('sync_metadata', {
   value: text('value').notNull(),
 });
 
+// Statistics table for caching computed statistics
+export const memoStatistics = sqliteTable('memo_statistics', {
+  id: text('id').primaryKey().default('latest'),
+  totalMemos: text('total_memos').notNull(),
+  totalDays: text('total_days').notNull(),
+  totalWords: text('total_words').notNull(),
+  dailyStats: text('daily_stats').notNull(), // JSON string of DailyStats[]
+  calculatedAt: text('calculated_at').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
 // Relations
 export const memosRelations = relations(memos, ({ one, many }) => ({
   link: one(links, {
@@ -121,3 +132,5 @@ export type Link = typeof links.$inferSelect;
 export type NewLink = typeof links.$inferInsert;
 export type MemoTag = typeof memoTags.$inferSelect;
 export type NewMemoTag = typeof memoTags.$inferInsert;
+export type MemoStatistic = typeof memoStatistics.$inferSelect;
+export type NewMemoStatistic = typeof memoStatistics.$inferInsert;

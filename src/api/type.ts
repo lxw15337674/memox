@@ -54,6 +54,8 @@ export interface MemosCount {
   dailyStats: DailyStats[];
   total: number;
   daysCount: number;
+  totalWords: number;
+  lastUpdated: string;
 }
 
 

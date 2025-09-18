@@ -19,7 +19,7 @@ export { AIServiceError };
 export async function callAI(request: AIRequest): Promise<AIResponse> {
     try {
         const response = await openai.chat.completions.create({
-            model: request.model ||"Qwen/Qwen3-30B-A3B-Instruct-2507" ,
+            model: request.model ||"Qwen/Qwen3-Next-80B-A3B-Instruct" ,
             messages: request.messages,
             temperature: request.temperature,
             response_format: { type: "json_object" },

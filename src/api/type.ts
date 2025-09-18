@@ -4,7 +4,7 @@ import type { Tag, Link, NewTag, NewLink } from "../db/schema";
 // 导出数据库类型（除了 NewMemo，我们会自定义）
 export type { Tag, Link, NewTag, NewLink };
 
-// 前端使用的 Memo 类型，images 已经被解析为数组
+// 前端使用的 Memo 类型，不包含 embedding 字段
 export interface Memo {
   id: string;
   content: string;
@@ -12,7 +12,7 @@ export interface Memo {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
-  embedding: ArrayBuffer | null;
+  // embedding 字段已移除 - 仅在服务端 AI 功能中使用
 }
 
 // 扩展 Memo 类型以便与前端兼容

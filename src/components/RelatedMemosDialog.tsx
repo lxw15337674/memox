@@ -132,7 +132,6 @@ export function RelatedMemosDialog({
     const handleRetry = () => {
         fetchRelatedMemos();
     };
-    console.log(relatedMemos)
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl h-[90vh] flex flex-col">

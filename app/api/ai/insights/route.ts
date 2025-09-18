@@ -2,6 +2,7 @@ import { db as client } from "../../../../src/db";
 import * as schema from "../../../../src/db/schema";
 import { eq, isNull, desc, and, gte, lte } from "drizzle-orm";
 import { callAI, AIServiceError } from "../../../../src/services/aiService";
+import { withAICache } from "../../../../src/lib/aiCache";
 
 // Comprehensive insight prompt (moved from aiActions.ts)
 const comprehensiveInsightPrompt = `
@@ -58,15 +59,6 @@ const comprehensiveInsightPrompt = `
 示例表达：
 "也许有件事你一直在有意无意地回避，就是【某个话题】，这可能因为【可能的原因】..."
 
-### E. 成长轨迹洞察
-- 思维方式的演进过程
-- 价值观的调整和坚持
-- 应对挑战能力的提升
-- 自我认知的深化过程
-
-示例表达：
-"从你最近的记录可以看出，你在【某方面】有了明显的成长，特别是【具体表现】..."
-
 ## 3. 输出格式要求
 
 请严格按照以下JSON格式输出，确保JSON格式完整有效：
@@ -75,7 +67,7 @@ const comprehensiveInsightPrompt = `
   "overview": "对用户整体思考模式的简洁总结（不超过100字）",
   "insights": [
     {
-      "type": "思考模式|情感规律|主题关联|回避盲点|成长轨迹",
+      "type": "思考模式|主题关联|回避盲点",
       "title": "简短的洞察标题",
       "content": "详细洞察内容",
       "evidence": "具体例证",
@@ -196,103 +188,121 @@ async function getMemosForInsight(options: {
 }
 
 // Main API handler for the POST request
-export async function POST(req: Request) {
+// Generate comprehensive insights
+async function generateComprehensiveInsights(options: { maxMemos: number, timeRange?: any }) {
+    const startTime = Date.now();
+    const { maxMemos, timeRange } = options;
+
+    // 1. Get memos data
+    const memos = await getMemosForInsight({ maxMemos, timeRange });
+
+    if (memos.length === 0) {
+        throw new Error("没有找到足够的笔记数据用于分析");
+    }
+
+    // 2. Prepare data for AI analysis
+    const startDate = memos[memos.length - 1]?.created_at || '';
+    const endDate = memos[0]?.created_at || '';
+    const totalCount = memos.length;
+    const allMemoContents = formatMemosForAI(memos);
+
+    // 3. Generate insights using AI
+    const prompt = comprehensiveInsightPrompt
+        .replace('{startDate}', startDate)
+        .replace('{endDate}', endDate)
+        .replace('{totalCount}', totalCount.toString())
+        .replace('{allMemoContents}', allMemoContents);
+
+    const aiResponse = await callAI({
+        messages: [
+            { role: 'system', content: '请分析这些笔记内容' },
+            { role: 'user', content: prompt }
+        ],
+        temperature: 0.6,
+        maxTokens: 2000
+    });
+
+    // 4. Process AI response
+    let insights;
+    const responseData = aiResponse.content;
+    if (typeof responseData === 'string') {
+        try {
+            insights = JSON.parse(responseData);
+        } catch (parseError) {
+            throw new Error('AI返回的JSON格式无效');
+        }
+    } else {
+        throw new Error(`未知的响应格式，类型: ${typeof responseData}`);
+    }
+
+    // 5. Validate and complete necessary fields
+    if (!insights.overview) {
+        insights.overview = '基于你的笔记内容，我发现了一些有趣的思考模式和行为规律。';
+    }
+    if (!insights.insights || !Array.isArray(insights.insights)) {
+        insights.insights = [];
+    }
+    if (!insights.patterns) {
+        insights.patterns = {
+            time_patterns: '时间模式分析完成',
+            topic_frequency: '主题频率分析完成',
+            emotional_trends: '情感趋势分析完成',
+            writing_style: '写作风格分析完成'
+        };
+    }
+    if (!insights.questions_to_ponder || !Array.isArray(insights.questions_to_ponder)) {
+        insights.questions_to_ponder = ['你觉得这些洞察准确吗？', '有哪些地方让你感到意外？'];
+    }
+
+    const processingTime = (Date.now() - startTime) / 1000;
+
+    return {
+        ...insights,
+        processingTime,
+        analyzedMemosCount: totalCount
+    };
+}
+
+export const POST = withAICache('insights', async (req: Request) => {
     const startTime = Date.now();
 
     try {
         const body = await req.json();
         const { maxMemos = 30, timeRange } = body;
 
-        // 1. Get memos data
-        const memos = await getMemosForInsight({ maxMemos, timeRange });
+        // Generate insights using the existing logic
+        const result = await generateComprehensiveInsights({ maxMemos, timeRange });
 
-        if (memos.length === 0) {
+        const duration = Date.now() - startTime;
+        console.log(`✅ Insights generated successfully in ${duration}ms`);
+
+        return new Response(JSON.stringify(result), {
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+    } catch (error: any) {
+        console.error("❌ Error generating insights:", error);
+        
+        const duration = Date.now() - startTime;
+        console.log(`❌ Insights generation failed after ${duration}ms`);
+
+        if (error instanceof AIServiceError) {
             return new Response(JSON.stringify({
-                error: "没有找到足够的笔记数据用于分析"
+                error: "AI service error",
+                details: error.message,
+                code: error.code
             }), {
-                status: 400,
+                status: 500,
                 headers: { 'Content-Type': 'application/json' }
             });
         }
 
-        // 2. Prepare data for AI analysis
-        const startDate = memos[memos.length - 1]?.created_at || '';
-        const endDate = memos[0]?.created_at || '';
-        const totalCount = memos.length;
-        const allMemoContents = formatMemosForAI(memos);
-
-        // 3. Generate insights using AI
-        const prompt = comprehensiveInsightPrompt
-            .replace('{startDate}', startDate)
-            .replace('{endDate}', endDate)
-            .replace('{totalCount}', totalCount.toString())
-            .replace('{allMemoContents}', allMemoContents);
-
-        const aiResponse = await callAI({
-            messages: [
-                { role: 'system', content: '请分析这些笔记内容' },
-                { role: 'user', content: prompt }
-            ],
-            temperature: 0.6,
-            maxTokens: 2000
-        });
-
-        // 4. Process AI response
-        let insights;
-        const responseData = aiResponse.content;
-        if (typeof responseData === 'string') {
-            try {
-                insights = JSON.parse(responseData);
-            } catch (parseError) {
-                throw new Error('AI返回的JSON格式无效');
-            }
-        } else {
-            throw new Error(`未知的响应格式，类型: ${typeof responseData}`);
-        }
-
-        // 5. Validate and complete necessary fields
-        if (!insights.overview) {
-            insights.overview = '基于你的笔记内容，我发现了一些有趣的思考模式和行为规律。';
-        }
-        if (!insights.insights || !Array.isArray(insights.insights)) {
-            insights.insights = [];
-        }
-        if (!insights.patterns) {
-            insights.patterns = {
-                time_patterns: '时间模式分析完成',
-                topic_frequency: '主题频率分析完成',
-                emotional_trends: '情感趋势分析完成',
-                writing_style: '写作风格分析完成'
-            };
-        }
-        if (!insights.questions_to_ponder || !Array.isArray(insights.questions_to_ponder)) {
-            insights.questions_to_ponder = ['你觉得这些洞察准确吗？', '有哪些地方让你感到意外？'];
-        }
-
-        const duration = (Date.now() - startTime) / 1000;
-
         return new Response(JSON.stringify({
-            ...insights,
-            processingTime: duration,
-            analyzedMemosCount: totalCount
-        }), {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
-
-    } catch (error: any) {
-        const duration = (Date.now() - startTime) / 1000;
-
-        return new Response(JSON.stringify({
-            error: error.message || "生成洞察时发生未知错误",
-            processingTime: duration
+            error: "Failed to generate insights",
+            details: error.message || "Unknown error"
         }), {
             status: 500,
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' }
         });
     }
-}
+});

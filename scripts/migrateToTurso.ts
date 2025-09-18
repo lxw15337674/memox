@@ -11,7 +11,7 @@ dotenv.config();
 
 // === 配置 ===
 const BATCH_SIZE = 50; // 每批处理的memo数量（生成embedding需要API调用）
-const MAX_MEMOS_TO_MIGRATE = 100; // 迁移所有memo数据（null表示不限制）
+const MAX_MEMOS_TO_MIGRATE = null; // 迁移所有memo数据（null表示不限制）
 const EMBEDDING_DELAY = 500; // 每次embedding生成后的延迟(ms)，避免API限流
 const FORCE_CLEAN_DATABASE = false; // 是否强制清理数据库（true=完全重新迁移, false=增量迁移）
 const MAX_RETRIES = 3; // 最大重试次数
@@ -80,17 +80,32 @@ async function retryOperation<T>(
  */
 async function clearTursoDatabase() {
     console.log("🧹 清理Turso数据库...");
-    try {
-        await db.delete(schema.memoTags);
-        await db.delete(schema.links);
-        await db.delete(schema.memos);
-        await db.delete(schema.tags);
-        await db.delete(schema.syncMetadata);
-        console.log("✅ Turso数据库清理完成");
-    } catch (error) {
-        console.error("❌ 清理数据库失败:", error);
-        throw error;
+    
+    // 要清理的表，按依赖顺序排列
+    const tablesToClear = [
+        { name: 'memoTags', schema: schema.memoTags },
+        { name: 'links', schema: schema.links },
+        { name: 'memos', schema: schema.memos },
+        { name: 'tags', schema: schema.tags },
+        { name: 'syncMetadata', schema: schema.syncMetadata }
+    ];
+    
+    for (const table of tablesToClear) {
+        try {
+            await db.delete(table.schema);
+            console.log(`  ✅ 已清理表: ${table.name}`);
+        } catch (error) {
+            const errorMessage = (error as Error).message;
+            if (errorMessage.includes('no such table') || errorMessage.includes('does not exist')) {
+                console.log(`  ⚠️ 表 ${table.name} 不存在，跳过清理`);
+            } else {
+                console.error(`  ❌ 清理表 ${table.name} 失败:`, error);
+                throw error;
+            }
+        }
     }
+    
+    console.log("✅ Turso数据库清理完成");
 }
 
 /**
@@ -695,28 +710,27 @@ async function main() {
 }
 
 // 运行迁移
-if (require.main === module) {
-    main()
-        .then(() => {
-            console.log("\n🎊 迁移脚本执行完成");
-            console.log("📝 接下来的步骤:");
-            console.log("  1. 验证应用连接到Turso数据库正常");
-            console.log("  2. 测试核心功能（创建、查看、编辑memo）");
-            console.log("  3. ✅ Embedding已生成：");
-            console.log("     - 迁移过程中已为历史memo生成embedding");
-            console.log("     - 新创建的memo会继续自动生成embedding");
-            console.log("     - 可以测试AI搜索和相关功能");
-            console.log("  4. 如果一切正常，可以停用Prisma数据库");
-            process.exit(0);
-        })
-        .catch((error) => {
-            console.error("\n💥 迁移脚本执行失败:", error);
-            console.log("\n🔄 可以尝试的恢复步骤:");
-            console.log("  1. 检查网络连接");
-            console.log("  2. 检查Turso数据库连接");
-            console.log("  3. 重新运行迁移脚本");
-            process.exit(1);
-        });
-}
+// 无论如何都运行 main 函数
+main()
+    .then(() => {
+        console.log("\n🎊 迁移脚本执行完成");
+        console.log("📝 接下来的步骤:");
+        console.log("  1. 验证应用连接到Turso数据库正常");
+        console.log("  2. 测试核心功能（创建、查看、编辑memo）");
+        console.log("  3. ✅ Embedding已生成：");
+        console.log("     - 迁移过程中已为历史memo生成embedding");
+        console.log("     - 新创建的memo会继续自动生成embedding");
+        console.log("     - 可以测试AI搜索和相关功能");
+        console.log("  4. 如果一切正常，可以停用Prisma数据库");
+        process.exit(0);
+    })
+    .catch((error) => {
+        console.error("\n💥 迁移脚本执行失败:", error);
+        console.log("\n🔄 可以尝试的恢复步骤:");
+        console.log("  1. 检查网络连接");
+        console.log("  2. 检查Turso数据库连接");
+        console.log("  3. 重新运行迁移脚本");
+        process.exit(1);
+    });
 
 export { main as migrateAllData };

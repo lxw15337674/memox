@@ -10,6 +10,7 @@ import type { ChatMessage } from "../../../../src/services/types";
 import { db } from "../../../../src/db";
 import * as schema from "../../../../src/db/schema";
 import { eq, and, isNull, ne } from "drizzle-orm";
+import { withAICache } from "../../../../src/lib/aiCache";
 
 const TOP_K = 20; // Maximum related memos to return
 const VECTOR_SIMILARITY_THRESHOLD = 0.4; // 向量相似度阈值
@@ -221,7 +222,7 @@ async function findRelatedMemos(memoId: string, queryEmbedding: number[]): Promi
 }
 
 // Main API handler for the POST request
-export async function POST(req: Request) {
+export const POST = withAICache('related', async (req: Request) => {
     const startTime = Date.now();
     let memoId: string | undefined;
 
@@ -295,4 +296,4 @@ export async function POST(req: Request) {
             headers: { 'Content-Type': 'application/json' },
         });
     }
-}
+});

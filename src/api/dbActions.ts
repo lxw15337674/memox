@@ -11,6 +11,7 @@ import { eq, and, desc, asc, count, isNull, isNotNull, gte, lt, inArray, like, s
 import { Desc } from '../store/filter';
 import { format } from 'date-fns';
 import { LinkType } from '../components/Editor/LinkAction';
+import { calculateWordCount } from '../utils';
 
 // URL验证函数
 function isValidURL(url: string): boolean {
@@ -306,6 +307,10 @@ export const createNewMemo = async (newMemo: NewMemo) => {
         // 异步生成embedding，不阻塞响应
         console.log(`[Server Action] 为新创建的 memo ${memo.id} 启动后台embedding生成`);
         waitUntil(generateMemoEmbedding(memo.id, memo.content));
+        
+        // 异步刷新统计缓存
+        console.log(`[Server Action] 为新创建的 memo ${memo.id} 启动统计缓存刷新`);
+        waitUntil(refreshStatisticsCache());
 
         return memo;
     } catch (error) {
@@ -321,6 +326,10 @@ export const deleteMemo = async (id: string) => {
             .set({ deletedAt: new Date().toISOString() })
             .where(eq(schema.memos.id, id));
         console.log("软删除成功");
+        
+        // 异步刷新统计缓存
+        console.log(`[Server Action] 为删除的 memo ${id} 启动统计缓存刷新`);
+        waitUntil(refreshStatisticsCache());
     } catch (error) {
         console.error("软删除失败:", error);
         throw error;
@@ -516,7 +525,80 @@ export const getTagsWithCountAction = async () => {
 
 
 
+/**
+ * 刷新统计缓存 - 实时计算并更新 memoStatistics 表
+ * 该函数会扫描所有未删除的 memo，计算统计数据并更新缓存
+ */
+export const refreshStatisticsCache = async () => {
+    try {
+        console.log('[统计缓存] 开始刷新统计数据...');
+        
+        // 获取所有未删除的memo
+        const memos = await client
+            .select({
+                content: schema.memos.content,
+                createdAt: schema.memos.createdAt
+            })
+            .from(schema.memos)
+            .where(isNull(schema.memos.deletedAt));
+
+        console.log(`[统计缓存] 获取到 ${memos.length} 条memo`);
+
+        // 计算总字数
+        let totalWords = 0;
+        for (const memo of memos) {
+            totalWords += calculateWordCount(memo.content);
+        }
+
+        // 按日期分组统计
+        const groupByDate = memos.reduce((acc: Record<string, number>, memo) => {
+            const date = format(new Date(memo.createdAt), 'yyyy/MM/dd');
+            acc[date] = (acc[date] || 0) + 1;
+            return acc;
+        }, {});
+
+        // 计算其他统计
+        const total = memos.length;
+        const daysCount = Object.keys(groupByDate).length;
+
+        // 构建每日统计数据
+        const dailyStats = Object.entries(groupByDate).map(([date, count]) => ({
+            date,
+            count
+        }));
+
+        // 删除旧的统计数据
+        await client.delete(schema.memoStatistics);
+
+        // 插入新的统计数据
+        const now = new Date().toISOString();
+        await client.insert(schema.memoStatistics).values({
+            id: 'latest',
+            dailyStats: JSON.stringify(dailyStats),
+            totalMemos: total.toString(),
+            totalDays: daysCount.toString(),
+            totalWords: totalWords.toString(),
+            calculatedAt: now,
+            createdAt: now
+        });
+
+        console.log(`[统计缓存] 统计数据已更新: 总计 ${total} 条memo, ${daysCount} 天, ${totalWords} 字`);
+        
+        return {
+            dailyStats,
+            total,
+            daysCount,
+            totalWords,
+            lastUpdated: new Date().toISOString()
+        };
+    } catch (error) {
+        console.error('[统计缓存] 刷新统计数据失败:', error);
+        throw error;
+    }
+};
+
 // 获取按日期分组的笔记数量，获取笔记总数，获取记录天数
+// 使用智能缓存策略: 如果缓存未过期(30分钟内)则直接返回，否则重新计算
 export const getCountAction = async (): Promise<MemosCount> => {
     try {
         // 尝试从缓存表读取统计数据
@@ -528,28 +610,32 @@ export const getCountAction = async (): Promise<MemosCount> => {
 
         if (cachedStats.length > 0) {
             const stats = cachedStats[0];
-            const dailyStats = JSON.parse(stats.dailyStats);
+            const cacheAge = Date.now() - new Date(stats.calculatedAt).getTime();
+            const CACHE_TTL = 30 * 60 * 1000; // 30分钟缓存时间
             
-            return {
-                dailyStats,
-                total: parseInt(stats.totalMemos),
-                daysCount: parseInt(stats.totalDays),
-                totalWords: parseInt(stats.totalWords),
-                lastUpdated: stats.calculatedAt
-            };
+            // 如果缓存未过期，直接返回
+            if (cacheAge < CACHE_TTL) {
+                console.log(`[统计缓存] 使用缓存数据 (${Math.floor(cacheAge / 1000 / 60)}分钟前更新)`);
+                const dailyStats = JSON.parse(stats.dailyStats);
+                
+                return {
+                    dailyStats,
+                    total: parseInt(stats.totalMemos),
+                    daysCount: parseInt(stats.totalDays),
+                    totalWords: parseInt(stats.totalWords),
+                    lastUpdated: stats.calculatedAt
+                };
+            }
+            
+            console.log('[统计缓存] 缓存已过期，重新计算...');
+        } else {
+            console.log('[统计缓存] 首次计算统计数据...');
         }
 
-        // 如果没有缓存数据，返回默认值
-        console.warn('没有找到缓存的统计数据，返回默认值');
-        return {
-            dailyStats: [],
-            total: 0,
-            daysCount: 0,
-            totalWords: 0,
-            lastUpdated: new Date().toISOString()
-        };
+        // 缓存不存在或已过期，重新计算
+        return await refreshStatisticsCache();
     } catch (error) {
-        console.error("获取统计数据失败:", error);
+        console.error("[统计缓存] 获取统计数据失败:", error);
         throw new Error("获取统计数据失败");
     }
 };

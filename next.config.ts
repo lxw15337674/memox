@@ -12,6 +12,8 @@ const withSerwist = withSerwistInit({
 
 const baseConfig: NextConfig = {
     reactStrictMode: true,
+    // 添加空的 turbopack 配置以消除警告
+    turbopack: {},
     logging: {
         fetches: {
             fullUrl: true,

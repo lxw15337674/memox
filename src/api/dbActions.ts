@@ -7,7 +7,20 @@ import * as schema from '../db/schema';
 import { generateTags } from './aiActions';
 import { generateEmbedding } from '../services/embeddingService';
 import { waitUntil } from '@vercel/functions';
-import { eq, and, desc, asc, count, isNull, isNotNull, gte, lt, inArray, like, sql } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  desc,
+  asc,
+  count,
+  isNull,
+  isNotNull,
+  gte,
+  lt,
+  inArray,
+  like,
+  sql,
+} from 'drizzle-orm';
 import { Desc } from '../store/filter';
 import { format } from 'date-fns';
 import { LinkType } from '../components/Editor/LinkAction';
@@ -15,921 +28,1154 @@ import { calculateWordCount } from '../utils';
 
 // URL验证函数
 function isValidURL(url: string): boolean {
-    if (!url || typeof url !== 'string' || url.trim().length === 0) {
-        return false;
-    }
-    
-    try {
-        const urlObj = new URL(url.trim());
-        return ['http:', 'https:'].includes(urlObj.protocol);
-    } catch {
-        return false;
-    }
+  if (!url || typeof url !== 'string' || url.trim().length === 0) {
+    return false;
+  }
+
+  try {
+    const urlObj = new URL(url.trim());
+    return ['http:', 'https:'].includes(urlObj.protocol);
+  } catch {
+    return false;
+  }
 }
 
 // Link清理函数 - 如果URL无效则返回null
 function sanitizeLink(link: LinkType | undefined): LinkType | null {
-    if (!link || !link.url || !isValidURL(link.url)) {
-        return null;
-    }
-    
-    return {
-        url: link.url.trim(),
-        text: link.text || ''
-    };
+  if (!link || !link.url || !isValidURL(link.url)) {
+    return null;
+  }
+
+  return {
+    url: link.url.trim(),
+    text: link.text || '',
+  };
 }
 
 // 前端数据查询选择器 - 不包含 embedding 字段
 const frontendMemoSelect = {
-    id: schema.memos.id,
-    content: schema.memos.content,
-    images: schema.memos.images,
-    createdAt: schema.memos.createdAt,
-    updatedAt: schema.memos.updatedAt,
-    deletedAt: schema.memos.deletedAt,
-    // embedding 字段已移除 - 仅在 AI 功能中单独查询
+  id: schema.memos.id,
+  content: schema.memos.content,
+  images: schema.memos.images,
+  createdAt: schema.memos.createdAt,
+  updatedAt: schema.memos.updatedAt,
+  deletedAt: schema.memos.deletedAt,
+  // embedding 字段已移除 - 仅在 AI 功能中单独查询
 };
 
+type MemoTagRow = {
+  memoId: string;
+  tagId: string;
+  tagName: string;
+  tagCreatedAt: string;
+};
+
+type DbTransaction = Parameters<Parameters<typeof client.transaction>[0]>[0];
+
+function buildMemoTagsMap(tagRows: MemoTagRow[]) {
+  const tagsByMemoId = new Map<
+    string,
+    { id: string; name: string; createdAt: string }[]
+  >();
+
+  for (const tagRow of tagRows) {
+    const existingTags = tagsByMemoId.get(tagRow.memoId) ?? [];
+    existingTags.push({
+      id: tagRow.tagId,
+      name: tagRow.tagName,
+      createdAt: tagRow.tagCreatedAt,
+    });
+    tagsByMemoId.set(tagRow.memoId, existingTags);
+  }
+
+  return tagsByMemoId;
+}
+
+async function resolveTagsForNames(tx: DbTransaction, tagNames: string[]) {
+  if (tagNames.length === 0) {
+    return [] as (typeof schema.tags.$inferSelect)[];
+  }
+
+  const uniqueTagNames = [...new Set(tagNames)];
+  const existingTags = await tx
+    .select()
+    .from(schema.tags)
+    .where(inArray(schema.tags.name, uniqueTagNames));
+
+  const existingTagNames = new Set(existingTags.map((tag) => tag.name));
+  const missingTagNames = uniqueTagNames.filter(
+    (tagName) => !existingTagNames.has(tagName),
+  );
+
+  if (missingTagNames.length > 0) {
+    await tx
+      .insert(schema.tags)
+      .values(
+        missingTagNames.map((tagName) => ({
+          id: crypto.randomUUID(),
+          name: tagName,
+          createdAt: new Date().toISOString(),
+        })),
+      )
+      .onConflictDoNothing({ target: schema.tags.name });
+  }
+
+  const allTags = await tx
+    .select()
+    .from(schema.tags)
+    .where(inArray(schema.tags.name, uniqueTagNames));
+  const tagByName = new Map(allTags.map((tag) => [tag.name, tag]));
+
+  return tagNames
+    .map((tagName) => tagByName.get(tagName))
+    .filter((tag): tag is (typeof allTags)[number] => Boolean(tag));
+}
 
 export const getRecordsActions = async (config: {
-    page_size?: number;
-    page?: number;
-    filter?: Filter;
-    desc?: Desc;
+  page_size?: number;
+  page?: number;
+  filter?: Filter;
+  desc?: Desc;
 }) => {
-    const { page_size = 30, page = 1, filter, desc: sortDesc = Desc.DESC } = config;
-    try {
-        const filterConditions = filter ? buildWhereClause(filter) : [];
-        const whereConditions = [
-            ...filterConditions,
-            isNull(schema.memos.deletedAt)
-        ];
+  const {
+    page_size = 30,
+    page = 1,
+    filter,
+    desc: sortDesc = Desc.DESC,
+  } = config;
+  try {
+    const filterConditions = filter ? buildWhereClause(filter) : [];
+    const whereConditions = [
+      ...filterConditions,
+      isNull(schema.memos.deletedAt),
+    ];
 
-        if (sortDesc === Desc.RANDOM) {
-            // 使用数据库原生RANDOM()函数进行随机排序
-            const items = await client
-                .select({
-                    ...frontendMemoSelect,
-                    link: {
-                        id: schema.links.id,
-                        url: schema.links.link,
-                        text: schema.links.text,
-                        memoId: schema.links.memoId
-                    }
-                })
-                .from(schema.memos)
-                .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
-                .where(and(...whereConditions))
-                .orderBy(sql`RANDOM()`)
-                .limit(page_size)
-                .offset((page - 1) * page_size);
+    if (sortDesc === Desc.RANDOM) {
+      // 使用数据库原生RANDOM()函数进行随机排序
+      const items = await client
+        .select({
+          ...frontendMemoSelect,
+          link: {
+            id: schema.links.id,
+            url: schema.links.link,
+            text: schema.links.text,
+            memoId: schema.links.memoId,
+          },
+        })
+        .from(schema.memos)
+        .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
+        .where(and(...whereConditions))
+        .orderBy(sql`RANDOM()`)
+        .limit(page_size)
+        .offset((page - 1) * page_size);
 
-            // 获取总数（用于分页）
-            const totalResult = await client
-                .select({ count: count() })
-                .from(schema.memos)
-                .where(and(...whereConditions));
-            const total = totalResult[0]?.count || 0;
+      // 获取总数（用于分页）
+      const totalResult = await client
+        .select({ count: count() })
+        .from(schema.memos)
+        .where(and(...whereConditions));
+      const total = totalResult[0]?.count || 0;
 
-            if (items.length === 0) {
-                return { items: [], total };
-            }
+      if (items.length === 0) {
+        return { items: [], total };
+      }
 
-            // 获取标签信息
-            const memoIds = items.map(item => item.id);
-            const tagsData = await client
-                .select({
-                    memoId: schema.memoTags.memoId,
-                    tagId: schema.tags.id,
-                    tagName: schema.tags.name,
-                    tagCreatedAt: schema.tags.createdAt
-                })
-                .from(schema.memoTags)
-                .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
-                .where(inArray(schema.memoTags.memoId, memoIds));
+      // 获取标签信息
+      const memoIds = items.map((item) => item.id);
+      const tagsData = await client
+        .select({
+          memoId: schema.memoTags.memoId,
+          tagId: schema.tags.id,
+          tagName: schema.tags.name,
+          tagCreatedAt: schema.tags.createdAt,
+        })
+        .from(schema.memoTags)
+        .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
+        .where(inArray(schema.memoTags.memoId, memoIds));
 
-            // 组装数据
-            const itemsWithTags = items.map(item => {
-                const tags = tagsData
-                    .filter(mt => mt.memoId === item.id)
-                    .map(mt => ({ id: mt.tagId, name: mt.tagName, createdAt: mt.tagCreatedAt }));
-                return {
-                    ...item,
-                    images: JSON.parse(item.images || '[]'),
-                    tags,
-                    link: item.link && item.link.id ? {
-                        id: item.link.id,
-                        link: item.link.url,
-                        text: item.link.text,
-                        createdAt: item.createdAt,
-                        memoId: item.link.memoId
-                    } : undefined
-                };
-            });
+      const tagsByMemoId = buildMemoTagsMap(tagsData);
 
-            return {
-                items: itemsWithTags as Note[],
-                total,
-            };
-        }
+      // 组装数据
+      const itemsWithTags = items.map((item) => {
+        return {
+          ...item,
+          images: JSON.parse(item.images || '[]'),
+          tags: tagsByMemoId.get(item.id) ?? [],
+          link:
+            item.link && item.link.id
+              ? {
+                  id: item.link.id,
+                  link: item.link.url,
+                  text: item.link.text,
+                  createdAt: item.createdAt,
+                  memoId: item.link.memoId,
+                }
+              : undefined,
+        };
+      });
 
-        // 普通查询
-        const [items, totalResult] = await Promise.all([
-            client
-                .select({
-                    id: schema.memos.id,
-                    content: schema.memos.content,
-                    images: schema.memos.images,
-                    createdAt: schema.memos.createdAt,
-                    updatedAt: schema.memos.updatedAt,
-                    deletedAt: schema.memos.deletedAt,
-                    link: {
-                        id: schema.links.id,
-                        url: schema.links.link,
-                        text: schema.links.text,
-                        memoId: schema.links.memoId
-                    }
-                })
-                .from(schema.memos)
-                .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
-                .where(and(...whereConditions))
-                .orderBy(sortDesc === Desc.DESC ? desc(schema.memos.createdAt) : asc(schema.memos.createdAt))
-                .limit(page_size)
-                .offset((page - 1) * page_size),
-            client
-                .select({ count: count() })
-                .from(schema.memos)
-                .where(and(...whereConditions))
-        ]);
+      return {
+        items: itemsWithTags as Note[],
+        total,
+      };
+    }
 
-        // 获取标签
-        const memoIds = items.map(item => item.id);
-        const memoTags = memoIds.length > 0 ? await client
+    // 普通查询
+    const [items, totalResult] = await Promise.all([
+      client
+        .select({
+          id: schema.memos.id,
+          content: schema.memos.content,
+          images: schema.memos.images,
+          createdAt: schema.memos.createdAt,
+          updatedAt: schema.memos.updatedAt,
+          deletedAt: schema.memos.deletedAt,
+          link: {
+            id: schema.links.id,
+            url: schema.links.link,
+            text: schema.links.text,
+            memoId: schema.links.memoId,
+          },
+        })
+        .from(schema.memos)
+        .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
+        .where(and(...whereConditions))
+        .orderBy(
+          sortDesc === Desc.DESC
+            ? desc(schema.memos.createdAt)
+            : asc(schema.memos.createdAt),
+        )
+        .limit(page_size)
+        .offset((page - 1) * page_size),
+      client
+        .select({ count: count() })
+        .from(schema.memos)
+        .where(and(...whereConditions)),
+    ]);
+
+    // 获取标签
+    const memoIds = items.map((item) => item.id);
+    const memoTags =
+      memoIds.length > 0
+        ? await client
             .select({
-                memoId: schema.memoTags.memoId,
-                tagId: schema.memoTags.tagId,
-                tagName: schema.tags.name,
-                tagCreatedAt: schema.tags.createdAt
+              memoId: schema.memoTags.memoId,
+              tagId: schema.memoTags.tagId,
+              tagName: schema.tags.name,
+              tagCreatedAt: schema.tags.createdAt,
             })
             .from(schema.memoTags)
             .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
-            .where(inArray(schema.memoTags.memoId, memoIds)) : [];
+            .where(inArray(schema.memoTags.memoId, memoIds))
+        : [];
 
-        // 组装数据
-        const itemsWithTags = items.map(item => {
-            const tags = memoTags
-                .filter(mt => mt.memoId === item.id)
-                .map(mt => ({ id: mt.tagId, name: mt.tagName, createdAt: mt.tagCreatedAt }));
-            return {
-                ...item,
-                images: JSON.parse(item.images || '[]'),
-                tags,
-                link: item.link && item.link.id ? {
-                    id: item.link.id,
-                    link: item.link.url,
-                    text: item.link.text,
-                    createdAt: item.createdAt,
-                    memoId: item.link.memoId
-                } : undefined
-            };
-        });
+    const tagsByMemoId = buildMemoTagsMap(memoTags);
 
-        return {
-            items: itemsWithTags as Note[],
-            total: totalResult[0].count,
-        }
-    } catch (error) {
-        console.error("数据获取失败:", error);
-        throw error;
-    }
+    // 组装数据
+    const itemsWithTags = items.map((item) => {
+      return {
+        ...item,
+        images: JSON.parse(item.images || '[]'),
+        tags: tagsByMemoId.get(item.id) ?? [],
+        link:
+          item.link && item.link.id
+            ? {
+                id: item.link.id,
+                link: item.link.url,
+                text: item.link.text,
+                createdAt: item.createdAt,
+                memoId: item.link.memoId,
+              }
+            : undefined,
+      };
+    });
+
+    return {
+      items: itemsWithTags as Note[],
+      total: totalResult[0].count,
+    };
+  } catch (error) {
+    console.error('数据获取失败:', error);
+    throw error;
+  }
 };
 
-export const getMemosDataActions = async ({ filter, desc = Desc.DESC, page = 1 }: {
-    filter?: Filter;
-    desc?: Desc;
-    page?: number;
+export const getMemosDataActions = async ({
+  filter,
+  desc = Desc.DESC,
+  page = 1,
+}: {
+  filter?: Filter;
+  desc?: Desc;
+  page?: number;
 } = {}) => {
-    try {
-        const data = await getRecordsActions({
-            desc,
-            page_size: 30,
-            page,
-            filter
-        });
-        return data;
-    } catch (error) {
-        console.error("memos获取失败:", error);
-        throw error;
-    }
+  try {
+    const data = await getRecordsActions({
+      desc,
+      page_size: 30,
+      page,
+      filter,
+    });
+    return data;
+  } catch (error) {
+    console.error('memos获取失败:', error);
+    throw error;
+  }
 };
 
 export const createNewMemo = async (newMemo: NewMemo) => {
-    try {
-        const { content, images, link, tags } = newMemo;
-        const tagNames: string[] = tags && tags.length > 0 ? tags : [];
-        
-        // 清理和验证link
-        const sanitizedLink = sanitizeLink(link);
-        
-        // 使用事务包装所有数据库操作，减少数据库往返
-        const memo = await client.transaction(async (tx) => {
-            // 创建memo
-            const memoData = {
-                id: crypto.randomUUID(),
-                content,
-                images: JSON.stringify(images || []),
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-            } satisfies typeof schema.memos.$inferInsert;
-            const [newMemo] = await tx
-                .insert(schema.memos)
-                .values(memoData)
-                .returning();
+  try {
+    const { content, images, link, tags } = newMemo;
+    const tagNames: string[] = tags && tags.length > 0 ? tags : [];
 
-            // 处理标签
-            const memoTags = [];
-            for (const tagName of tagNames) {
-                // 查找或创建标签
-                let [tag] = await tx
-                    .select()
-                    .from(schema.tags)
-                    .where(eq(schema.tags.name, tagName));
-                
-                if (!tag) {
-                    [tag] = await tx
-                        .insert(schema.tags)
-                        .values({ 
-                            id: crypto.randomUUID(),
-                            name: tagName,
-                            createdAt: new Date().toISOString()
-                        })
-                        .returning();
-                }
+    // 清理和验证link
+    const sanitizedLink = sanitizeLink(link);
 
-                // 创建memo-tag关联
-                await tx
-                    .insert(schema.memoTags)
-                    .values({
-                        memoId: newMemo.id,
-                        tagId: tag.id
-                    });
-                
-                memoTags.push(tag);
-            }
+    // 使用事务包装所有数据库操作，减少数据库往返
+    const memo = await client.transaction(async (tx) => {
+      // 创建memo
+      const memoData = {
+        id: crypto.randomUUID(),
+        content,
+        images: JSON.stringify(images || []),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } satisfies typeof schema.memos.$inferInsert;
+      const [newMemo] = await tx
+        .insert(schema.memos)
+        .values(memoData)
+        .returning();
 
-            // 处理链接
-            let memoLink = null;
-            if (sanitizedLink) {
-                [memoLink] = await tx
-                    .insert(schema.links)
-                    .values({
-                        id: crypto.randomUUID(),
-                        link: sanitizedLink.url,
-                        text: sanitizedLink.text,
-                        memoId: newMemo.id,
-                        createdAt: new Date().toISOString()
-                    })
-                    .returning();
-            }
+      // 处理标签
+      const memoTags = await resolveTagsForNames(tx, tagNames);
+      if (memoTags.length > 0) {
+        await tx.insert(schema.memoTags).values(
+          memoTags.map((tag) => ({
+            memoId: newMemo.id,
+            tagId: tag.id,
+          })),
+        );
+      }
 
-            return {
-                ...newMemo,
-                images: JSON.parse(newMemo.images || '[]'),
-                tags: memoTags,
-                link: memoLink
-            };
-        });
-        
-        // 异步生成AI标签和embedding，不阻塞响应
-        console.log(`[Server Action] 为新创建的 memo ${memo.id} 启动后台AI标签生成`);
-        waitUntil(regenerateMemeTags(memo.id));
-        
-        // 异步生成embedding，不阻塞响应
-        console.log(`[Server Action] 为新创建的 memo ${memo.id} 启动后台embedding生成`);
-        waitUntil(generateMemoEmbedding(memo.id, memo.content));
-        
-        // 异步刷新统计缓存
-        console.log(`[Server Action] 为新创建的 memo ${memo.id} 启动统计缓存刷新`);
-        waitUntil(refreshStatisticsCache());
+      // 处理链接
+      let memoLink = null;
+      if (sanitizedLink) {
+        [memoLink] = await tx
+          .insert(schema.links)
+          .values({
+            id: crypto.randomUUID(),
+            link: sanitizedLink.url,
+            text: sanitizedLink.text,
+            memoId: newMemo.id,
+            createdAt: new Date().toISOString(),
+          })
+          .returning();
+      }
 
-        return memo;
-    } catch (error) {
-        console.error("添加失败:", error);
-        throw error;
-    }
+      return {
+        ...newMemo,
+        images: JSON.parse(newMemo.images || '[]'),
+        tags: memoTags,
+        link: memoLink,
+      };
+    });
+
+    // 异步生成AI标签和embedding，不阻塞响应
+    console.log(
+      `[Server Action] 为新创建的 memo ${memo.id} 启动后台AI标签生成`,
+    );
+    waitUntil(regenerateMemeTags(memo.id));
+
+    // 异步生成embedding，不阻塞响应
+    console.log(
+      `[Server Action] 为新创建的 memo ${memo.id} 启动后台embedding生成`,
+    );
+    waitUntil(generateMemoEmbedding(memo.id, memo.content));
+
+    console.log(
+      `[Server Action] 为新创建的 memo ${memo.id} 启动统计缓存增量更新`,
+    );
+    waitUntil(
+      updateStatisticsCacheForMemoChange('add', {
+        content: memo.content,
+        createdAt: memo.createdAt,
+      }),
+    );
+
+    return memo;
+  } catch (error) {
+    console.error('添加失败:', error);
+    throw error;
+  }
 };
 
 export const deleteMemo = async (id: string) => {
-    try {
-        await client
-            .update(schema.memos)
-            .set({ deletedAt: new Date().toISOString() })
-            .where(eq(schema.memos.id, id));
-        console.log("软删除成功");
-        
-        // 异步刷新统计缓存
-        console.log(`[Server Action] 为删除的 memo ${id} 启动统计缓存刷新`);
-        waitUntil(refreshStatisticsCache());
-    } catch (error) {
-        console.error("软删除失败:", error);
-        throw error;
+  try {
+    const [memoToDelete] = await client
+      .select({
+        content: schema.memos.content,
+        createdAt: schema.memos.createdAt,
+      })
+      .from(schema.memos)
+      .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
+
+    const deletedRows = await client
+      .update(schema.memos)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)))
+      .returning({ id: schema.memos.id });
+    console.log('软删除成功');
+
+    if (memoToDelete && deletedRows.length > 0) {
+      console.log(`[Server Action] 为删除的 memo ${id} 启动统计缓存增量更新`);
+      waitUntil(updateStatisticsCacheForMemoChange('remove', memoToDelete));
     }
+  } catch (error) {
+    console.error('软删除失败:', error);
+    throw error;
+  }
 };
 
 export const getMemoByIdAction = async (id: string) => {
-    try {
-        const [memo] = await client
-            .select({
-                ...frontendMemoSelect,
-                link: {
-                    id: schema.links.id,
-                    url: schema.links.link,
-                    text: schema.links.text,
-                    memoId: schema.links.memoId
-                }
-            })
-            .from(schema.memos)
-            .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
-            .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
+  try {
+    const [memo] = await client
+      .select({
+        ...frontendMemoSelect,
+        link: {
+          id: schema.links.id,
+          url: schema.links.link,
+          text: schema.links.text,
+          memoId: schema.links.memoId,
+        },
+      })
+      .from(schema.memos)
+      .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
+      .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
 
-        if (!memo) return null;
+    if (!memo) return null;
 
-        // 获取标签
-        const memoTags = await client
-            .select({
-                tagId: schema.memoTags.tagId,
-                tagName: schema.tags.name,
-                tagCreatedAt: schema.tags.createdAt
-            })
-            .from(schema.memoTags)
-            .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
-            .where(eq(schema.memoTags.memoId, id));
+    // 获取标签
+    const memoTags = await client
+      .select({
+        tagId: schema.memoTags.tagId,
+        tagName: schema.tags.name,
+        tagCreatedAt: schema.tags.createdAt,
+      })
+      .from(schema.memoTags)
+      .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
+      .where(eq(schema.memoTags.memoId, id));
 
-        return {
-            ...memo,
-            images: JSON.parse(memo.images || '[]'),
-            tags: memoTags.map(mt => ({ id: mt.tagId, name: mt.tagName, createdAt: mt.tagCreatedAt })),
-            link: memo.link && memo.link.id ? {
-                id: memo.link.id,
-                link: memo.link.url,
-                text: memo.link.text,
-                createdAt: memo.createdAt,
-                memoId: memo.link.memoId
-            } : undefined
-        };
-    } catch (error) {
-        console.error(error);
-        return null;
-    }
+    return {
+      ...memo,
+      images: JSON.parse(memo.images || '[]'),
+      tags: memoTags.map((mt) => ({
+        id: mt.tagId,
+        name: mt.tagName,
+        createdAt: mt.tagCreatedAt,
+      })),
+      link:
+        memo.link && memo.link.id
+          ? {
+              id: memo.link.id,
+              link: memo.link.url,
+              text: memo.link.text,
+              createdAt: memo.createdAt,
+              memoId: memo.link.memoId,
+            }
+          : undefined,
+    };
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
 };
 
 // 完整更新memo，包含AI标签生成（适用于完成编辑后的最终保存）
 export const updateMemoAction = async (id: string, newMemo: NewMemo) => {
-    try {
-        const { content, images, link } = newMemo;
-        
-        // 清理和验证link
-        const sanitizedLink = sanitizeLink(link);
+  try {
+    const { content, images, link } = newMemo;
 
-        // 使用事务优化数据库操作，减少往返次数
-        const updatedMemo = await client.transaction(async (tx) => {
-            // 检查memo是否存在
-            const [existingMemo] = await tx
-                .select({ id: schema.memos.id })
-                .from(schema.memos)
-                .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
+    // 清理和验证link
+    const sanitizedLink = sanitizeLink(link);
 
-            if (!existingMemo) {
-                throw new Error('Memo not found');
-            }
+    // 使用事务优化数据库操作，减少往返次数
+    const updatedMemo = await client.transaction(async (tx) => {
+      // 检查memo是否存在
+      const [existingMemo] = await tx
+        .select({
+          id: schema.memos.id,
+          content: schema.memos.content,
+        })
+        .from(schema.memos)
+        .where(and(eq(schema.memos.id, id), isNull(schema.memos.deletedAt)));
 
-            // 更新memo
-            await tx
-                .update(schema.memos)
-                .set({
-                    content,
-                    images: JSON.stringify(images || []),
-                    updatedAt: new Date().toISOString()
-                })
-                .where(eq(schema.memos.id, id));
+      if (!existingMemo) {
+        throw new Error('Memo not found');
+      }
 
-            // 处理链接
-            if (sanitizedLink) {
-                // 删除现有链接
-                await tx
-                    .delete(schema.links)
-                    .where(eq(schema.links.memoId, id));
-                
-                // 创建新链接
-                await tx
-                    .insert(schema.links)
-                    .values({
-                        id: crypto.randomUUID(),
-                        link: sanitizedLink.url,
-                        text: sanitizedLink.text,
-                        memoId: id,
-                        createdAt: new Date().toISOString()
-                    });
-            } else {
-                // 如果没有有效链接，删除现有链接
-                await tx
-                    .delete(schema.links)
-                    .where(eq(schema.links.memoId, id));
-            }
+      // 更新memo
+      await tx
+        .update(schema.memos)
+        .set({
+          content,
+          images: JSON.stringify(images || []),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.memos.id, id));
 
-            return { id };
+      // 处理链接
+      if (sanitizedLink) {
+        // 删除现有链接
+        await tx.delete(schema.links).where(eq(schema.links.memoId, id));
+
+        // 创建新链接
+        await tx.insert(schema.links).values({
+          id: crypto.randomUUID(),
+          link: sanitizedLink.url,
+          text: sanitizedLink.text,
+          memoId: id,
+          createdAt: new Date().toISOString(),
         });
+      } else {
+        // 如果没有有效链接，删除现有链接
+        await tx.delete(schema.links).where(eq(schema.links.memoId, id));
+      }
 
-        // 异步处理标签生成和更新 - 不阻塞主响应
-        waitUntil(regenerateMemeTags(id));
-        
-        // 异步生成新的embedding - 不阻塞主响应
-        waitUntil(generateMemoEmbedding(id, content));
+      return { id, previousContent: existingMemo.content };
+    });
 
-        // 立即返回更新结果，不等待标签生成
-        return id;
-    } catch (error) {
-        console.error("更新失败:", error);
-        return null;
-    }
+    // 异步处理标签生成和更新 - 不阻塞主响应
+    waitUntil(regenerateMemeTags(id));
+
+    // 异步生成新的embedding - 不阻塞主响应
+    waitUntil(generateMemoEmbedding(id, content));
+
+    waitUntil(
+      updateStatisticsCacheForContentChange(
+        updatedMemo.previousContent,
+        content,
+      ),
+    );
+
+    // 立即返回更新结果，不等待标签生成
+    return id;
+  } catch (error) {
+    console.error('更新失败:', error);
+    return null;
+  }
 };
 
 function buildWhereClause(filter: Filter) {
-    const conditions = filter.conditions || [];
-    const whereConditions: any[] = [];
+  const conditions = filter.conditions || [];
+  const whereConditions: any[] = [];
 
-    conditions.forEach(condition => {
-        if (condition.field_name === "content") {
-            whereConditions.push(like(schema.memos.content, `%${condition.value[0]}%`));
-            return;
-        }
-        if (condition.field_name === "tags") {
-            // 对于标签过滤，需要子查询
-            const tagSubquery = client
-                .select({ memoId: schema.memoTags.memoId })
-                .from(schema.memoTags)
-                .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
-                .where(inArray(schema.tags.name, condition.value));
-            whereConditions.push(inArray(schema.memos.id, tagSubquery));
-            return;
-        }
-        if (condition.field_name === "created_time") {
-            const date = new Date(condition.value[0]);
-            const startOfDay = new Date(date.setHours(0, 0, 0, 0));
-            const endOfDay = new Date(date.setHours(23, 59, 59, 999));
-            whereConditions.push(
-                and(
-                    gte(schema.memos.createdAt, startOfDay.toISOString()),
-                    lt(schema.memos.createdAt, endOfDay.toISOString())
-                )
-            );
-            return;
-        }
-        if (condition.field_name === "images") {
-            if (condition.operator === "isNotEmpty") {
-                whereConditions.push(sql`json_array_length(${schema.memos.images}) > 0`);
-            } else if (condition.operator === "isEmpty") {
-                whereConditions.push(sql`json_array_length(${schema.memos.images}) = 0`);
-            }
-            return;
-        }
-    });
+  conditions.forEach((condition) => {
+    if (condition.field_name === 'content') {
+      whereConditions.push(
+        like(schema.memos.content, `%${condition.value[0]}%`),
+      );
+      return;
+    }
+    if (condition.field_name === 'tags') {
+      // 对于标签过滤，需要子查询
+      const tagSubquery = client
+        .select({ memoId: schema.memoTags.memoId })
+        .from(schema.memoTags)
+        .innerJoin(schema.tags, eq(schema.memoTags.tagId, schema.tags.id))
+        .where(inArray(schema.tags.name, condition.value));
+      whereConditions.push(inArray(schema.memos.id, tagSubquery));
+      return;
+    }
+    if (condition.field_name === 'created_time') {
+      const date = new Date(condition.value[0]);
+      const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+      whereConditions.push(
+        and(
+          gte(schema.memos.createdAt, startOfDay.toISOString()),
+          lt(schema.memos.createdAt, endOfDay.toISOString()),
+        ),
+      );
+      return;
+    }
+    if (condition.field_name === 'images') {
+      if (condition.operator === 'isNotEmpty') {
+        whereConditions.push(
+          sql`json_array_length(${schema.memos.images}) > 0`,
+        );
+      } else if (condition.operator === 'isEmpty') {
+        whereConditions.push(
+          sql`json_array_length(${schema.memos.images}) = 0`,
+        );
+      }
+      return;
+    }
+  });
 
-    return whereConditions;
+  return whereConditions;
 }
 
 export const getTagsAction = async () => {
-    const tags = await client.select().from(schema.tags);
-    return tags;
+  const tags = await client.select().from(schema.tags);
+  return tags;
 };
 
 export const getTagsWithCountAction = async () => {
-    const tagsWithCount = await client
-        .select({
-            id: schema.tags.id,
-            name: schema.tags.name,
-            createdAt: schema.tags.createdAt,
-            memoCount: count(schema.memoTags.memoId)
-        })
-        .from(schema.tags)
-        .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
-        .leftJoin(schema.memos, and(
-            eq(schema.memoTags.memoId, schema.memos.id),
-            isNull(schema.memos.deletedAt)
-        ))
-        .groupBy(schema.tags.id, schema.tags.name, schema.tags.createdAt)
-          .orderBy(desc(count(schema.memoTags.memoId)));
- 
-     return tagsWithCount;
+  const tagsWithCount = await client
+    .select({
+      id: schema.tags.id,
+      name: schema.tags.name,
+      createdAt: schema.tags.createdAt,
+      memoCount: count(schema.memoTags.memoId),
+    })
+    .from(schema.tags)
+    .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
+    .leftJoin(
+      schema.memos,
+      and(
+        eq(schema.memoTags.memoId, schema.memos.id),
+        isNull(schema.memos.deletedAt),
+      ),
+    )
+    .groupBy(schema.tags.id, schema.tags.name, schema.tags.createdAt)
+    .orderBy(desc(count(schema.memoTags.memoId)));
+
+  return tagsWithCount;
 };
 
+type DailyStatEntry = {
+  date: string;
+  count: number;
+};
 
+function parseDailyStats(rawDailyStats: string): DailyStatEntry[] {
+  try {
+    const parsed = JSON.parse(rawDailyStats);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => ({
+        date: typeof item?.date === 'string' ? item.date : '',
+        count: Number(item?.count) || 0,
+      }))
+      .filter((item) => item.date.length > 0 && item.count > 0);
+  } catch {
+    return [];
+  }
+}
+
+async function writeStatisticsSnapshot(snapshot: {
+  dailyStats: DailyStatEntry[];
+  totalMemos: number;
+  totalWords: number;
+  createdAt?: string;
+}) {
+  const now = new Date().toISOString();
+  await client
+    .insert(schema.memoStatistics)
+    .values({
+      id: 'latest',
+      dailyStats: JSON.stringify(snapshot.dailyStats),
+      totalMemos: snapshot.totalMemos.toString(),
+      totalDays: snapshot.dailyStats.length.toString(),
+      totalWords: snapshot.totalWords.toString(),
+      calculatedAt: now,
+      createdAt: snapshot.createdAt || now,
+    })
+    .onConflictDoUpdate({
+      target: schema.memoStatistics.id,
+      set: {
+        dailyStats: JSON.stringify(snapshot.dailyStats),
+        totalMemos: snapshot.totalMemos.toString(),
+        totalDays: snapshot.dailyStats.length.toString(),
+        totalWords: snapshot.totalWords.toString(),
+        calculatedAt: now,
+      },
+    });
+}
+
+async function updateStatisticsCacheForMemoChange(
+  mode: 'add' | 'remove',
+  memo: { content: string; createdAt: string },
+) {
+  try {
+    const [cachedStats] = await client
+      .select()
+      .from(schema.memoStatistics)
+      .where(eq(schema.memoStatistics.id, 'latest'))
+      .limit(1);
+
+    if (!cachedStats) {
+      await refreshStatisticsCache();
+      return;
+    }
+
+    const countDelta = mode === 'add' ? 1 : -1;
+    const wordsDelta =
+      mode === 'add'
+        ? calculateWordCount(memo.content)
+        : -calculateWordCount(memo.content);
+    const dailyStatsMap = new Map(
+      parseDailyStats(cachedStats.dailyStats).map((item) => [
+        item.date,
+        item.count,
+      ]),
+    );
+    const dateKey = format(new Date(memo.createdAt), 'yyyy/MM/dd');
+    const nextDateCount = Math.max(
+      0,
+      (dailyStatsMap.get(dateKey) || 0) + countDelta,
+    );
+
+    if (nextDateCount === 0) {
+      dailyStatsMap.delete(dateKey);
+    } else {
+      dailyStatsMap.set(dateKey, nextDateCount);
+    }
+
+    const nextDailyStats = [...dailyStatsMap.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const nextTotalMemos = Math.max(
+      0,
+      parseInt(cachedStats.totalMemos, 10) + countDelta,
+    );
+    const nextTotalWords = Math.max(
+      0,
+      parseInt(cachedStats.totalWords, 10) + wordsDelta,
+    );
+
+    await writeStatisticsSnapshot({
+      dailyStats: nextDailyStats,
+      totalMemos: nextTotalMemos,
+      totalWords: nextTotalWords,
+      createdAt: cachedStats.createdAt,
+    });
+  } catch (error) {
+    console.error('[统计缓存] 增量更新失败，回退到全量刷新:', error);
+    await refreshStatisticsCache();
+  }
+}
+
+async function updateStatisticsCacheForContentChange(
+  previousContent: string,
+  nextContent: string,
+) {
+  const wordsDelta =
+    calculateWordCount(nextContent) - calculateWordCount(previousContent);
+  if (wordsDelta === 0) {
+    return;
+  }
+
+  try {
+    const [cachedStats] = await client
+      .select()
+      .from(schema.memoStatistics)
+      .where(eq(schema.memoStatistics.id, 'latest'))
+      .limit(1);
+
+    if (!cachedStats) {
+      await refreshStatisticsCache();
+      return;
+    }
+
+    await writeStatisticsSnapshot({
+      dailyStats: parseDailyStats(cachedStats.dailyStats),
+      totalMemos: Math.max(0, parseInt(cachedStats.totalMemos, 10)),
+      totalWords: Math.max(
+        0,
+        parseInt(cachedStats.totalWords, 10) + wordsDelta,
+      ),
+      createdAt: cachedStats.createdAt,
+    });
+  } catch (error) {
+    console.error('[统计缓存] 内容增量更新失败，回退到全量刷新:', error);
+    await refreshStatisticsCache();
+  }
+}
 
 /**
  * 刷新统计缓存 - 实时计算并更新 memoStatistics 表
  * 该函数会扫描所有未删除的 memo，计算统计数据并更新缓存
  */
 export const refreshStatisticsCache = async () => {
-    try {
-        console.log('[统计缓存] 开始刷新统计数据...');
-        
-        // 获取所有未删除的memo
-        const memos = await client
-            .select({
-                content: schema.memos.content,
-                createdAt: schema.memos.createdAt
-            })
-            .from(schema.memos)
-            .where(isNull(schema.memos.deletedAt));
+  try {
+    console.log('[统计缓存] 开始刷新统计数据...');
 
-        console.log(`[统计缓存] 获取到 ${memos.length} 条memo`);
+    // 获取所有未删除的memo
+    const memos = await client
+      .select({
+        content: schema.memos.content,
+        createdAt: schema.memos.createdAt,
+      })
+      .from(schema.memos)
+      .where(isNull(schema.memos.deletedAt));
 
-        // 计算总字数
-        let totalWords = 0;
-        for (const memo of memos) {
-            totalWords += calculateWordCount(memo.content);
-        }
+    console.log(`[统计缓存] 获取到 ${memos.length} 条memo`);
 
-        // 按日期分组统计
-        const groupByDate = memos.reduce((acc: Record<string, number>, memo) => {
-            const date = format(new Date(memo.createdAt), 'yyyy/MM/dd');
-            acc[date] = (acc[date] || 0) + 1;
-            return acc;
-        }, {});
-
-        // 计算其他统计
-        const total = memos.length;
-        const daysCount = Object.keys(groupByDate).length;
-
-        // 构建每日统计数据
-        const dailyStats = Object.entries(groupByDate).map(([date, count]) => ({
-            date,
-            count
-        }));
-
-        // 删除旧的统计数据
-        await client.delete(schema.memoStatistics);
-
-        // 插入新的统计数据
-        const now = new Date().toISOString();
-        await client.insert(schema.memoStatistics).values({
-            id: 'latest',
-            dailyStats: JSON.stringify(dailyStats),
-            totalMemos: total.toString(),
-            totalDays: daysCount.toString(),
-            totalWords: totalWords.toString(),
-            calculatedAt: now,
-            createdAt: now
-        });
-
-        console.log(`[统计缓存] 统计数据已更新: 总计 ${total} 条memo, ${daysCount} 天, ${totalWords} 字`);
-        
-        return {
-            dailyStats,
-            total,
-            daysCount,
-            totalWords,
-            lastUpdated: new Date().toISOString()
-        };
-    } catch (error) {
-        console.error('[统计缓存] 刷新统计数据失败:', error);
-        throw error;
+    // 计算总字数
+    let totalWords = 0;
+    for (const memo of memos) {
+      totalWords += calculateWordCount(memo.content);
     }
+
+    // 按日期分组统计
+    const groupByDate = memos.reduce((acc: Record<string, number>, memo) => {
+      const date = format(new Date(memo.createdAt), 'yyyy/MM/dd');
+      acc[date] = (acc[date] || 0) + 1;
+      return acc;
+    }, {});
+
+    // 计算其他统计
+    const total = memos.length;
+    const daysCount = Object.keys(groupByDate).length;
+
+    // 构建每日统计数据
+    const dailyStats = Object.entries(groupByDate).map(([date, count]) => ({
+      date,
+      count,
+    }));
+
+    // 删除旧的统计数据
+    await client.delete(schema.memoStatistics);
+
+    // 插入新的统计数据
+    const now = new Date().toISOString();
+    await client.insert(schema.memoStatistics).values({
+      id: 'latest',
+      dailyStats: JSON.stringify(dailyStats),
+      totalMemos: total.toString(),
+      totalDays: daysCount.toString(),
+      totalWords: totalWords.toString(),
+      calculatedAt: now,
+      createdAt: now,
+    });
+
+    console.log(
+      `[统计缓存] 统计数据已更新: 总计 ${total} 条memo, ${daysCount} 天, ${totalWords} 字`,
+    );
+
+    return {
+      dailyStats,
+      total,
+      daysCount,
+      totalWords,
+      lastUpdated: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error('[统计缓存] 刷新统计数据失败:', error);
+    throw error;
+  }
 };
 
 // 获取按日期分组的笔记数量，获取笔记总数，获取记录天数
 // 使用智能缓存策略: 如果缓存未过期(30分钟内)则直接返回，否则重新计算
 export const getCountAction = async (): Promise<MemosCount> => {
-    try {
-        // 尝试从缓存表读取统计数据
-        const cachedStats = await client
-            .select()
-            .from(schema.memoStatistics)
-            .where(eq(schema.memoStatistics.id, 'latest'))
-            .limit(1);
+  try {
+    // 尝试从缓存表读取统计数据
+    const cachedStats = await client
+      .select()
+      .from(schema.memoStatistics)
+      .where(eq(schema.memoStatistics.id, 'latest'))
+      .limit(1);
 
-        if (cachedStats.length > 0) {
-            const stats = cachedStats[0];
-            const cacheAge = Date.now() - new Date(stats.calculatedAt).getTime();
-            const CACHE_TTL = 30 * 60 * 1000; // 30分钟缓存时间
-            
-            // 如果缓存未过期，直接返回
-            if (cacheAge < CACHE_TTL) {
-                console.log(`[统计缓存] 使用缓存数据 (${Math.floor(cacheAge / 1000 / 60)}分钟前更新)`);
-                const dailyStats = JSON.parse(stats.dailyStats);
-                
-                return {
-                    dailyStats,
-                    total: parseInt(stats.totalMemos),
-                    daysCount: parseInt(stats.totalDays),
-                    totalWords: parseInt(stats.totalWords),
-                    lastUpdated: stats.calculatedAt
-                };
-            }
-            
-            console.log('[统计缓存] 缓存已过期，重新计算...');
-        } else {
-            console.log('[统计缓存] 首次计算统计数据...');
-        }
+    if (cachedStats.length > 0) {
+      const stats = cachedStats[0];
+      const cacheAge = Date.now() - new Date(stats.calculatedAt).getTime();
+      const CACHE_TTL = 30 * 60 * 1000; // 30分钟缓存时间
 
-        // 缓存不存在或已过期，重新计算
-        return await refreshStatisticsCache();
-    } catch (error) {
-        console.error("[统计缓存] 获取统计数据失败:", error);
-        throw new Error("获取统计数据失败");
+      // 如果缓存未过期，直接返回
+      if (cacheAge < CACHE_TTL) {
+        console.log(
+          `[统计缓存] 使用缓存数据 (${Math.floor(cacheAge / 1000 / 60)}分钟前更新)`,
+        );
+        const dailyStats = JSON.parse(stats.dailyStats);
+
+        return {
+          dailyStats,
+          total: parseInt(stats.totalMemos),
+          daysCount: parseInt(stats.totalDays),
+          totalWords: parseInt(stats.totalWords),
+          lastUpdated: stats.calculatedAt,
+        };
+      }
+
+      console.log('[统计缓存] 缓存已过期，重新计算...');
+    } else {
+      console.log('[统计缓存] 首次计算统计数据...');
     }
+
+    // 缓存不存在或已过期，重新计算
+    return await refreshStatisticsCache();
+  } catch (error) {
+    console.error('[统计缓存] 获取统计数据失败:', error);
+    throw new Error('获取统计数据失败');
+  }
 };
 
 export const clearAllDataAction = async () => {
-    try {
-        await client.delete(schema.links);
-        await client.delete(schema.memoTags);
-        await client.delete(schema.tags);
-        await client
-            .update(schema.memos)
-            .set({ deletedAt: new Date().toISOString() })
-            .where(isNull(schema.memos.deletedAt));
-        return { success: true };
-    } catch (error) {
-        console.error("清空数据失败:", error);
-        throw error;
-    }
+  try {
+    await client.delete(schema.links);
+    await client.delete(schema.memoTags);
+    await client.delete(schema.tags);
+    await client
+      .update(schema.memos)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(isNull(schema.memos.deletedAt));
+    waitUntil(refreshStatisticsCache());
+    return { success: true };
+  } catch (error) {
+    console.error('清空数据失败:', error);
+    throw error;
+  }
 };
 
 export const deleteTagAction = async (tagName: string) => {
-    const [tag] = await client
-        .delete(schema.tags)
-        .where(eq(schema.tags.name, tagName))
-        .returning();
-    return tag;
+  const [tag] = await client
+    .delete(schema.tags)
+    .where(eq(schema.tags.name, tagName))
+    .returning();
+  return tag;
 };
 
 export const updateTagAction = async (oldName: string, newName: string) => {
-    const updatedTag = await client.transaction(async (tx) => {
-        // First check if the new name already exists
-        const [existingTag] = await tx
-            .select()
-            .from(schema.tags)
-            .where(eq(schema.tags.name, newName));
+  const updatedTag = await client.transaction(async (tx) => {
+    // First check if the new name already exists
+    const [existingTag] = await tx
+      .select()
+      .from(schema.tags)
+      .where(eq(schema.tags.name, newName));
 
-        if (existingTag) {
-            throw new Error('Tag with this name already exists');
-        }
+    if (existingTag) {
+      throw new Error('Tag with this name already exists');
+    }
 
-        // Get the old tag
-        const [oldTag] = await tx
-            .select()
-            .from(schema.tags)
-            .where(eq(schema.tags.name, oldName));
+    // Get the old tag
+    const [oldTag] = await tx
+      .select()
+      .from(schema.tags)
+      .where(eq(schema.tags.name, oldName));
 
-        if (!oldTag) {
-            throw new Error('Old tag not found');
-        }
+    if (!oldTag) {
+      throw new Error('Old tag not found');
+    }
 
-        // Update the tag name directly
-        const [newTag] = await tx
-            .update(schema.tags)
-            .set({ name: newName })
-            .where(eq(schema.tags.id, oldTag.id))
-            .returning();
+    // Update the tag name directly
+    const [newTag] = await tx
+      .update(schema.tags)
+      .set({ name: newName })
+      .where(eq(schema.tags.id, oldTag.id))
+      .returning();
 
-        return newTag;
-    });
+    return newTag;
+  });
 
-    return updatedTag;
+  return updatedTag;
 };
 
 // 手动触发标签重新生成（同步版本，用于用户主动触发）
 export const updateMemoTagsAction = async (memoId: string) => {
-    try {
-        const [memo] = await client
-            .select()
-            .from(schema.memos)
-            .where(and(eq(schema.memos.id, memoId), isNull(schema.memos.deletedAt)));
-        
-        if (!memo) {
-            console.error(`Memo with id ${memoId} not found.`);
-            return null;
-        }
+  try {
+    const [memo] = await client
+      .select()
+      .from(schema.memos)
+      .where(and(eq(schema.memos.id, memoId), isNull(schema.memos.deletedAt)));
 
-        if (!memo.content || memo.content.trim().length < 5) {
-            console.log(`Content too short for tag generation: ${memoId}`);
-            return memo;
-        }
-
-        // 同步生成标签（用户主动触发时可以等待）
-        const tagNames = await generateTags(memo.content);
-
-        if (tagNames && tagNames.length > 0) {
-            await client.transaction(async (tx) => {
-                // 删除现有的标签关联
-                await tx
-                    .delete(schema.memoTags)
-                    .where(eq(schema.memoTags.memoId, memoId));
-
-                // 为每个标签创建或查找，然后关联
-                for (const tagName of tagNames) {
-                    let [tag] = await tx
-                        .select()
-                        .from(schema.tags)
-                        .where(eq(schema.tags.name, tagName));
-                    
-                    if (!tag) {
-                        [tag] = await tx
-                            .insert(schema.tags)
-                            .values({ 
-                                id: crypto.randomUUID(),
-                                name: tagName,
-                                createdAt: new Date().toISOString()
-                            })
-                            .returning();
-                    }
-
-                    await tx
-                        .insert(schema.memoTags)
-                        .values({
-                            memoId: memoId,
-                            tagId: tag.id
-                        });
-                }
-            });
-        }
-
-        return { id: memoId, tags: tagNames };
-    } catch (error) {
-        console.error(`Error updating tags for memo ${memoId}:`, error);
-        return null;
+    if (!memo) {
+      console.error(`Memo with id ${memoId} not found.`);
+      return null;
     }
+
+    if (!memo.content || memo.content.trim().length < 5) {
+      console.log(`Content too short for tag generation: ${memoId}`);
+      return memo;
+    }
+
+    // 同步生成标签（用户主动触发时可以等待）
+    const tagNames = await generateTags(memo.content);
+
+    if (tagNames && tagNames.length > 0) {
+      await client.transaction(async (tx) => {
+        // 删除现有的标签关联
+        await tx
+          .delete(schema.memoTags)
+          .where(eq(schema.memoTags.memoId, memoId));
+
+        const resolvedTags = await resolveTagsForNames(tx, tagNames);
+        if (resolvedTags.length > 0) {
+          await tx.insert(schema.memoTags).values(
+            resolvedTags.map((tag) => ({
+              memoId: memoId,
+              tagId: tag.id,
+            })),
+          );
+        }
+      });
+    }
+
+    return { id: memoId, tags: tagNames };
+  } catch (error) {
+    console.error(`Error updating tags for memo ${memoId}:`, error);
+    return null;
+  }
 };
 
 export const regenerateMemeTags = async (memoId: string) => {
-    try {
-        const [memo] = await client
-            .select({
-                id: schema.memos.id,
-                content: schema.memos.content,
-                images: schema.memos.images,
-                createdAt: schema.memos.createdAt,
-                updatedAt: schema.memos.updatedAt,
-                deletedAt: schema.memos.deletedAt,
-                link: {
-                    id: schema.links.id,
-                    url: schema.links.link,
-                    text: schema.links.text,
-                    memoId: schema.links.memoId
-                }
-            })
-            .from(schema.memos)
-            .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
-            .where(and(eq(schema.memos.id, memoId), isNull(schema.memos.deletedAt)));
-        
-        if (!memo) {
-            console.error(`Memo with id ${memoId} not found.`);
-            return null;
-        }
+  try {
+    const [memo] = await client
+      .select({
+        id: schema.memos.id,
+        content: schema.memos.content,
+        images: schema.memos.images,
+        createdAt: schema.memos.createdAt,
+        updatedAt: schema.memos.updatedAt,
+        deletedAt: schema.memos.deletedAt,
+        link: {
+          id: schema.links.id,
+          url: schema.links.link,
+          text: schema.links.text,
+          memoId: schema.links.memoId,
+        },
+      })
+      .from(schema.memos)
+      .leftJoin(schema.links, eq(schema.memos.id, schema.links.memoId))
+      .where(and(eq(schema.memos.id, memoId), isNull(schema.memos.deletedAt)));
 
-        // if content is too short, no need to call AI
-        if (!memo.content || memo.content.trim().length < 5) {
-            console.log(`Content too short for tag generation: ${memoId}`);
-            return memo;
-        }
-
-        const tagNames = await generateTags(memo.content);
-
-        const updatedTags = await client.transaction(async (tx) => {
-            // 删除现有的标签关联
-            await tx
-                .delete(schema.memoTags)
-                .where(eq(schema.memoTags.memoId, memoId));
-
-            const tags = [];
-            // 为每个标签创建或查找，然后关联
-            for (const tagName of tagNames) {
-                let [tag] = await tx
-                    .select()
-                    .from(schema.tags)
-                    .where(eq(schema.tags.name, tagName));
-                
-                if (!tag) {
-                    [tag] = await tx
-                        .insert(schema.tags)
-                        .values({ 
-                            id: crypto.randomUUID(),
-                            name: tagName,
-                            createdAt: new Date().toISOString()
-                        })
-                        .returning();
-                }
-
-                await tx
-                    .insert(schema.memoTags)
-                    .values({
-                        memoId: memoId,
-                        tagId: tag.id
-                    });
-                
-                tags.push(tag);
-            }
-            return tags;
-        });
-
-        const updatedMemo = {
-            ...memo,
-            tags: updatedTags,
-            link: memo.link?.id ? memo.link : null
-        };
-        
-        console.log(`Tags updated for memo: ${memoId}`, tagNames);
-        return updatedMemo;
-
-    } catch (error) {
-        console.error(`Error regenerating tags for memo ${memoId}:`, error);
-        return null;
+    if (!memo) {
+      console.error(`Memo with id ${memoId} not found.`);
+      return null;
     }
+
+    // if content is too short, no need to call AI
+    if (!memo.content || memo.content.trim().length < 5) {
+      console.log(`Content too short for tag generation: ${memoId}`);
+      return memo;
+    }
+
+    const tagNames = await generateTags(memo.content);
+
+    const updatedTags = await client.transaction(async (tx) => {
+      // 删除现有的标签关联
+      await tx
+        .delete(schema.memoTags)
+        .where(eq(schema.memoTags.memoId, memoId));
+
+      const tags = await resolveTagsForNames(tx, tagNames);
+      if (tags.length > 0) {
+        await tx.insert(schema.memoTags).values(
+          tags.map((tag) => ({
+            memoId: memoId,
+            tagId: tag.id,
+          })),
+        );
+      }
+      return tags;
+    });
+
+    const updatedMemo = {
+      ...memo,
+      tags: updatedTags,
+      link: memo.link?.id ? memo.link : null,
+    };
+
+    console.log(`Tags updated for memo: ${memoId}`, tagNames);
+    return updatedMemo;
+  } catch (error) {
+    console.error(`Error regenerating tags for memo ${memoId}:`, error);
+    return null;
+  }
 };
 
 // 查询关联数量少于指定阈值的标签
 export const getUnderUsedTagsAction = async (threshold: number = 10) => {
-    try {
-        const tagsWithCount = await client
-            .select({
-                id: schema.tags.id,
-                name: schema.tags.name,
-                memoCount: count(schema.memoTags.memoId)
-            })
-            .from(schema.tags)
-            .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
-            .leftJoin(schema.memos, and(
-                eq(schema.memoTags.memoId, schema.memos.id),
-                isNull(schema.memos.deletedAt)
-            ))
-            .groupBy(schema.tags.id, schema.tags.name)
-            .having(sql`count(${schema.memoTags.memoId}) < ${threshold}`);
+  try {
+    const tagsWithCount = await client
+      .select({
+        id: schema.tags.id,
+        name: schema.tags.name,
+        memoCount: count(schema.memoTags.memoId),
+      })
+      .from(schema.tags)
+      .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
+      .leftJoin(
+        schema.memos,
+        and(
+          eq(schema.memoTags.memoId, schema.memos.id),
+          isNull(schema.memos.deletedAt),
+        ),
+      )
+      .groupBy(schema.tags.id, schema.tags.name)
+      .having(sql`count(${schema.memoTags.memoId}) < ${threshold}`);
 
-        return tagsWithCount;
-    } catch (error) {
-        console.error("获取低频标签失败:", error);
-        throw error;
-    }
+    return tagsWithCount;
+  } catch (error) {
+    console.error('获取低频标签失败:', error);
+    throw error;
+  }
 };
 
 // 批量删除低频标签
 export const deleteUnderUsedTagsAction = async (threshold: number = 10) => {
-    try {
-        const result = await client.transaction(async (tx) => {
-            // 查询所有标签及其关联的备忘录数量
-            const tagsWithCount = await tx
-                .select({
-                    id: schema.tags.id,
-                    name: schema.tags.name,
-                    memoCount: count(schema.memoTags.memoId)
-                })
-                .from(schema.tags)
-                .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
-                .leftJoin(schema.memos, and(
-                    eq(schema.memoTags.memoId, schema.memos.id),
-                    isNull(schema.memos.deletedAt)
-                ))
-                .groupBy(schema.tags.id, schema.tags.name);
+  try {
+    const result = await client.transaction(async (tx) => {
+      // 查询所有标签及其关联的备忘录数量
+      const tagsWithCount = await tx
+        .select({
+          id: schema.tags.id,
+          name: schema.tags.name,
+          memoCount: count(schema.memoTags.memoId),
+        })
+        .from(schema.tags)
+        .leftJoin(schema.memoTags, eq(schema.tags.id, schema.memoTags.tagId))
+        .leftJoin(
+          schema.memos,
+          and(
+            eq(schema.memoTags.memoId, schema.memos.id),
+            isNull(schema.memos.deletedAt),
+          ),
+        )
+        .groupBy(schema.tags.id, schema.tags.name);
 
-            // 筛选出关联数量少于阈值的标签
-            const tagsToDeleteIds = tagsWithCount
-                .filter(tag => tag.memoCount < threshold)
-                .map(tag => tag.id);
+      // 筛选出关联数量少于阈值的标签
+      const tagsToDeleteIds = tagsWithCount
+        .filter((tag) => tag.memoCount < threshold)
+        .map((tag) => tag.id);
 
-            if (tagsToDeleteIds.length === 0) {
-                return {
-                    deletedCount: 0,
-                    deletedTags: []
-                };
-            }
+      if (tagsToDeleteIds.length === 0) {
+        return {
+          deletedCount: 0,
+          deletedTags: [],
+        };
+      }
 
-            // 记录要删除的标签信息
-            const deletedTagsInfo = tagsWithCount
-                .filter(tag => tagsToDeleteIds.includes(tag.id))
-                .map(tag => ({
-                    id: tag.id,
-                    name: tag.name,
-                    memoCount: tag.memoCount
-                }));
+      // 记录要删除的标签信息
+      const deletedTagsInfo = tagsWithCount
+        .filter((tag) => tagsToDeleteIds.includes(tag.id))
+        .map((tag) => ({
+          id: tag.id,
+          name: tag.name,
+          memoCount: tag.memoCount,
+        }));
 
-            // 批量删除标签
-            await tx
-                .delete(schema.tags)
-                .where(inArray(schema.tags.id, tagsToDeleteIds));
+      // 批量删除标签
+      await tx
+        .delete(schema.tags)
+        .where(inArray(schema.tags.id, tagsToDeleteIds));
 
-            return {
-                deletedCount: tagsToDeleteIds.length,
-                deletedTags: deletedTagsInfo
-            };
-        });
+      return {
+        deletedCount: tagsToDeleteIds.length,
+        deletedTags: deletedTagsInfo,
+      };
+    });
 
-        console.log(`成功删除 ${result.deletedCount} 个低频标签`);
-        return result;
-    } catch (error) {
-        console.error("删除低频标签失败:", error);
-        throw error;
-    }
+    console.log(`成功删除 ${result.deletedCount} 个低频标签`);
+    return result;
+  } catch (error) {
+    console.error('删除低频标签失败:', error);
+    throw error;
+  }
 };
 
 /**
@@ -937,31 +1183,32 @@ export const deleteUnderUsedTagsAction = async (threshold: number = 10) => {
  * @param memoId memo的ID
  * @param content memo的内容
  */
-export const generateMemoEmbedding = async (memoId: string, content: string) => {
-    try {
-        // 检查内容是否为空
-        if (!content || content.trim().length === 0) {
-            console.warn(`[Embedding] Memo ${memoId} 内容为空，跳过embedding生成`);
-            return;
-        }
-
-        console.log(`[Embedding] 开始为 memo ${memoId} 生成embedding...`);
-        
-        // 生成embedding
-        const embedding = await generateEmbedding(content.trim());
-        
-        // 保存到数据库 - 直接使用 number[] 数组，schema 的 toDriver 会处理转换
-        await client
-            .update(schema.memos)
-            .set({ embedding: embedding })
-            .where(eq(schema.memos.id, memoId));
-            
-        console.log(`[Embedding] Memo ${memoId} 的embedding生成并保存成功`);
-    } catch (error) {
-        console.error(`[Embedding] Memo ${memoId} 的embedding生成失败:`, error);
-        // 不抛出错误，避免影响主流程
-        // 可以考虑将失败的memo记录到队列中，供后续重试
+export const generateMemoEmbedding = async (
+  memoId: string,
+  content: string,
+) => {
+  try {
+    // 检查内容是否为空
+    if (!content || content.trim().length === 0) {
+      console.warn(`[Embedding] Memo ${memoId} 内容为空，跳过embedding生成`);
+      return;
     }
+
+    console.log(`[Embedding] 开始为 memo ${memoId} 生成embedding...`);
+
+    // 生成embedding
+    const embedding = await generateEmbedding(content.trim());
+
+    // 保存到数据库 - 直接使用 number[] 数组，schema 的 toDriver 会处理转换
+    await client
+      .update(schema.memos)
+      .set({ embedding: embedding })
+      .where(eq(schema.memos.id, memoId));
+
+    console.log(`[Embedding] Memo ${memoId} 的embedding生成并保存成功`);
+  } catch (error) {
+    console.error(`[Embedding] Memo ${memoId} 的embedding生成失败:`, error);
+    // 不抛出错误，避免影响主流程
+    // 可以考虑将失败的memo记录到队列中，供后续重试
+  }
 };
-
-

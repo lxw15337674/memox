@@ -48,9 +48,10 @@ export const generateTags = async (content: string): Promise<string[]> => {
                 { role: 'system', content: rolePrompt },
                 { role: 'user', content: content }
             ],
-            temperature: 0.3
+            temperature: 0.1
         });
         const result = JSON.parse(response.content);
+        console.log('生成的标签:', result);
         return result.tags || [];
     } catch (error) {   
         console.error('生成标签时出错:', error);
@@ -65,7 +66,7 @@ export const polishContent = async (content: string): Promise<string> => {
                 { role: 'system', content: polishPrompt() },
                 { role: 'user', content: content }
             ],
-            temperature: 0.7
+            temperature: 0.5
         });
         
         const result = JSON.parse(response.content);

@@ -50,8 +50,8 @@ export const generateTags = async (content: string): Promise<string[]> => {
             ],
             temperature: 0.1
         });
+        console.log('ai out:', response.content);
         const result = JSON.parse(response.content);
-        console.log('生成的标签:', result);
         return result.tags || [];
     } catch (error) {   
         console.error('生成标签时出错:', error);

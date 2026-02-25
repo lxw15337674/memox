@@ -48,8 +48,9 @@ export const generateTags = async (content: string): Promise<string[]> => {
                 { role: 'system', content: rolePrompt },
                 { role: 'user', content: content }
             ],
-            temperature: 0.3
+            temperature: 0.1
         });
+        console.log('ai out:', response.content);
         const result = JSON.parse(response.content);
         return result.tags || [];
     } catch (error) {   
@@ -65,7 +66,7 @@ export const polishContent = async (content: string): Promise<string> => {
                 { role: 'system', content: polishPrompt() },
                 { role: 'user', content: content }
             ],
-            temperature: 0.7
+            temperature: 0.5
         });
         
         const result = JSON.parse(response.content);

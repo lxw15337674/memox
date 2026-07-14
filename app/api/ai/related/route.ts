@@ -16,23 +16,12 @@ const TOP_K = 20; // Maximum related memos to return
 const VECTOR_SIMILARITY_THRESHOLD = 0.4; // 向量相似度阈值
 const MAX_AI_CANDIDATES = 30; // 向量预筛选后送给AI分析的最大候选数量
 
-async function getMemoEmbedding(memoId: string): Promise<number[]> {
+async function getMemoEmbedding(
+  memoId: string,
+  content: string,
+  existingEmbedding: (typeof schema.memos.$inferSelect)['embedding'],
+): Promise<number[]> {
   try {
-    const [existingMemo] = await db
-      .select({
-        content: schema.memos.content,
-        embedding: schema.memos.embedding,
-      })
-      .from(schema.memos)
-      .where(and(eq(schema.memos.id, memoId), isNull(schema.memos.deletedAt)));
-
-    if (!existingMemo) {
-      throw new Error('Memo not found or deleted');
-    }
-
-    const content = existingMemo.content;
-    const existingEmbedding = existingMemo.embedding;
-
     // Try to use existing embedding if valid
     if (existingEmbedding) {
       try {
@@ -110,10 +99,10 @@ async function analyzeRelatedMemosWithAI(
 - 评分要准确反映真实的相关程度
 - 宁可评分保守，也不要虚高
 
-请直接返回评分数组，格式如下：
-[0.8, 0.6, 0.3, 0.1, ...]
+请返回JSON对象，scores字段为评分数组，格式如下：
+{"scores": [0.8, 0.6, 0.3, 0.1, ...]}
 
-注意：数组长度必须与输入笔记数量完全一致，第i个评分对应第i个输入笔记。`,
+注意：scores数组长度必须与输入笔记数量完全一致，第i个评分对应第i个输入笔记。`,
       },
       {
         role: 'user',
@@ -132,8 +121,8 @@ ${memosText}
       temperature: 0.3,
     });
 
-    // 解析AI响应 - 直接获取评分数组
-    const scores = JSON.parse(aiResponse.content);
+    // 解析AI响应 - 固定 { "scores": [...] } 结构
+    const scores = JSON.parse(aiResponse.content).scores;
 
     // 将AI评分与原始数据合并
     const enhancedMemos = memosForAnalysis.map((memo, index) => ({
@@ -292,7 +281,11 @@ export const POST = withAICache('related', async (req: Request) => {
       throw new Error('Memo not found or deleted');
     }
 
-    const embedding = await getMemoEmbedding(memoId);
+    const embedding = await getMemoEmbedding(
+      memoId,
+      currentMemo.content,
+      currentMemo.embedding,
+    );
 
     // 2. Find candidate memos using vector similarity
     const candidateMemos = await findRelatedMemos(memoId, embedding);

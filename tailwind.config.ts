@@ -7,6 +7,8 @@ const config = {
     './components/**/*.{ts,tsx}',
     './app/**/*.{ts,tsx}',
     './src/**/*.{ts,tsx}',
+    // Streamdown 用 Tailwind 工具类渲染 markdown，需扫描其 dist 以免类被 purge
+    './node_modules/streamdown/dist/*.js',
   ],
   prefix: '',
   theme: {

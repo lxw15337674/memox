@@ -2,3 +2,9 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+
+overrides:
+  "@types/react": 19.2.8
+  "@types/react-dom": 19.2.3
+  esbuild: ">=0.25.0"
+  postcss: ">=8.5.10"

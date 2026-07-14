@@ -14,6 +14,7 @@ interface MemoStore {
     total: number;
   };
   currentPage: number;
+  isLoading: boolean;
   fetchInitData: () => Promise<void>;
   fetchPagedData: () => Promise<void>;
   removeMemo: (id: string) => number;
@@ -69,6 +70,7 @@ const useMemoStore = create<MemoStore>()(
     immer((set, get) => ({
       memos: [],
       currentPage: 1,
+      isLoading: false,
       databases: {
         has_more: false,
         total: 0,
@@ -141,19 +143,28 @@ const useMemoStore = create<MemoStore>()(
       },
       // 获取初始化数据
       fetchInitData: async () => {
-        const response = await getMemosDataActions({
-          filter: useFilterStore.getState().filterParams,
-          desc: useFilterStore.getState().desc,
-          page: 1
+        set((state) => {
+          state.isLoading = true;
         });
-        if (response) {
+        try {
+          const response = await getMemosDataActions({
+            filter: useFilterStore.getState().filterParams,
+            desc: useFilterStore.getState().desc,
+            page: 1
+          });
+          if (response) {
+            set((state) => {
+              state.databases = {
+                has_more: (response.total ?? 0) > (response.items?.length ?? 0),
+                total: response.total ?? 0
+              };
+              state.memos = response.items ?? [];
+              state.currentPage = 1;
+            });
+          }
+        } finally {
           set((state) => {
-            state.databases = {
-              has_more: (response.total ?? 0) > (response.items?.length ?? 0),
-              total: response.total ?? 0
-            };
-            state.memos = response.items ?? [];
-            state.currentPage = 1;
+            state.isLoading = false;
           });
         }
       },

@@ -8,22 +8,22 @@ import useConfigStore from '@/store/config';
 import SimpleMemoView from '../src/components/MemoView/SimpleMemoView';
 import { PhotoProvider } from 'react-photo-view';
 import useCountStore from '../src/store/count';
-import { Note, TagWithCount, MemosCount } from '@/api/type';
 
-interface MainProps {
-    initialData?: {
-        memos: {
-            items: Note[];
-            total: number;
-        };
-        tags: TagWithCount[];
-        counts: MemosCount;
-    };
+// 骨架卡片占位
+function MemoSkeleton() {
+    return (
+        <div className="animate-pulse rounded-md border border-border bg-card p-4 space-y-3">
+            <div className="h-3 w-24 rounded bg-muted" />
+            <div className="h-3 w-full rounded bg-muted" />
+            <div className="h-3 w-5/6 rounded bg-muted" />
+            <div className="h-3 w-2/3 rounded bg-muted" />
+        </div>
+    );
 }
 
-export default function Main({ initialData }: MainProps) {
-    const { memos = [], fetchInitData, fetchPagedData, databases, initializeWithServerData } = useMemoStore();
-    const { fetchTags, getCount, initializeWithServerData: initializeCountStore } = useCountStore();
+export default function Main() {
+    const { memos = [], fetchInitData, fetchPagedData, databases, isLoading } = useMemoStore();
+    const { fetchTags, getCount } = useCountStore();
     const { validateAccessCode, config } = useConfigStore();
     const { isSimpleMode } = config.generalConfig;
     const router = useRouter();
@@ -35,19 +35,22 @@ export default function Main({ initialData }: MainProps) {
             }
         });
 
-        // 如果有 SSR 数据，优先使用它来初始化 store
-        if (initialData) {
-            console.log('🔄 Using SSR data to initialize stores');
-            initializeWithServerData(initialData.memos);
-            initializeCountStore(initialData.tags, initialData.counts);
-        } else {
-            // 降级到客户端数据获取
-            console.log('📡 Falling back to client-side data fetching');
-            fetchInitData();
-            fetchTags();
-            getCount();
-        }
+        // 纯 CSR：客户端获取全部初始数据
+        fetchInitData();
+        fetchTags();
+        getCount();
     });
+
+    // 首次加载且暂无数据时显示骨架屏
+    if (isLoading && memos.length === 0) {
+        return (
+            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2'>
+                {Array.from({ length: 6 }).map((_, i) => (
+                    <MemoSkeleton key={i} />
+                ))}
+            </div>
+        );
+    }
 
     return (
         <PhotoProvider>

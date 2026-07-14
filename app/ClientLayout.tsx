@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Main from './Main';
-import SideBar from './SideBar';
 import NewMemoEditor from './NewMemoEditor';
 import { ShareCardDialog } from '@/components/ShareCard/ShareCardDialog';
 import { AIInsightDialog } from '@/components/AIInsightDialog';
@@ -11,20 +10,8 @@ import LeftSide from '@/components/LeftSide';
 import MemoFilter from '@/components/MemoFilter';
 import MobileHeader from '../src/components/MobileHeader';
 import Tools from '@/components/Tools';
-import { Note, TagWithCount, MemosCount } from '@/api/type';
 
-interface ClientLayoutProps {
-    initialData?: {
-        memos: {
-            items: Note[];
-            total: number;
-        };
-        tags: TagWithCount[];
-        counts: MemosCount;
-    };
-}
-
-export default function ClientLayout({ initialData }: ClientLayoutProps) {
+export default function ClientLayout() {
     const [insightDialogOpen, setInsightDialogOpen] = useState(false);
     const [isInsightLoading, setIsInsightLoading] = useState(false);
     const [hasInsights, setHasInsights] = useState(false);
@@ -68,7 +55,7 @@ export default function ClientLayout({ initialData }: ClientLayoutProps) {
                         </div>
                         <MemoFilter />
                         <section className="overflow-y-auto overflow-x-hidden flex-grow">
-                            <Main initialData={initialData} />
+                            <Main />
                         </section>
                     </div>
                 </main>
@@ -87,8 +74,8 @@ export default function ClientLayout({ initialData }: ClientLayoutProps) {
 
             {/* 更新的侧边栏 - 移除AI洞察按钮 */}
             <div className="hidden md:flex h-screen overflow-hidden group flex-col justify-start items-start transition-all px-4 py-4 w-60 fixed right-0 top-0">
-                <Tools initialData={initialData} />
+                <Tools />
             </div>
         </div>
     );
-} 
+}

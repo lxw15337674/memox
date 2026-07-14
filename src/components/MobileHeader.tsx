@@ -1,7 +1,6 @@
 'use client';
 import classNames from 'classnames';
 import NavigationDrawer from './NavigationDrawer';
-import useIsMobile from '@/hooks/useIsMobile';
 import { ModeToggle } from './LeftSide/ModeToggle';
 import { Setting } from './LeftSide/Setting';
 import {
@@ -30,12 +29,8 @@ const MobileHeader = (props: Props) => {
     hasInsights = false,
     onSearchClick
   } = props;
-  const isMobile = useIsMobile();
 
-  if (!isMobile) {
-    return null;
-  }
-
+  // 响应式由 Tailwind `md:hidden` 控制，避免 SSR/CSR 因 window 宽度不一致导致 hydration 报错
   return (
     <div
       className={classNames(

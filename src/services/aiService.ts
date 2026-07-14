@@ -1,11 +1,13 @@
 import OpenAI from 'openai';
 import { AIRequest, AIResponse, AIServiceError } from './types';
 
-// OpenAI配置
+// LLM 配置 - 从环境变量读取，便于切换服务商
 const openai = new OpenAI({
-    baseURL: 'https://api.siliconflow.cn/v1',
-    apiKey: process.env.SILICONFLOW_API_KEY,
+    baseURL: process.env.AI_BASE_URL || 'https://api.siliconflow.cn/v1',
+    apiKey: process.env.AI_API_KEY || process.env.SILICONFLOW_API_KEY,
 });
+
+const DEFAULT_AI_MODEL = process.env.AI_MODEL || 'deepseek-ai/DeepSeek-V4-Flash';
 
 
 /**
@@ -19,7 +21,7 @@ export { AIServiceError };
 export async function callAI(request: AIRequest): Promise<AIResponse> {
     try {
         const response = await openai.chat.completions.create({
-            model: request.model ||"deepseek-ai/DeepSeek-V4-Flash" ,
+            model: request.model || DEFAULT_AI_MODEL,
             messages: request.messages,
             temperature: request.temperature,
             response_format: { type: "json_object" },

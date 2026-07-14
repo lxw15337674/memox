@@ -52,3 +52,6 @@ public/swe-worker*
 
 .vercel
 .env*.local
+.env*
+
+local.db

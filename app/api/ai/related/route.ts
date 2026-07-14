@@ -9,12 +9,13 @@ import { callAI } from '../../../../src/services/aiService';
 import type { ChatMessage } from '../../../../src/services/types';
 import { db, client } from '../../../../src/db';
 import * as schema from '../../../../src/db/schema';
-import { eq, and, isNull, ne } from 'drizzle-orm';
+import { eq, and, isNull, ne, desc } from 'drizzle-orm';
 import { withAICache } from '../../../../src/lib/aiCache';
 
 const TOP_K = 20; // Maximum related memos to return
 const VECTOR_SIMILARITY_THRESHOLD = 0.4; // 向量相似度阈值
 const MAX_AI_CANDIDATES = 30; // 向量预筛选后送给AI分析的最大候选数量
+const JS_FALLBACK_SCAN_LIMIT = 500; // JS 回退时最多扫描的 memo 数，防止全表 embedding 载入内存
 
 async function getMemoEmbedding(
   memoId: string,
@@ -162,7 +163,9 @@ async function findRelatedMemosWithJsFallback(
       embedding: schema.memos.embedding,
     })
     .from(schema.memos)
-    .where(and(ne(schema.memos.id, memoId), isNull(schema.memos.deletedAt)));
+    .where(and(ne(schema.memos.id, memoId), isNull(schema.memos.deletedAt)))
+    .orderBy(desc(schema.memos.createdAt))
+    .limit(JS_FALLBACK_SCAN_LIMIT);
 
   return candidateMemos
     .map((memo) => {

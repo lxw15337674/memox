@@ -4,6 +4,9 @@ import OpenAI from 'openai';
 const openai = new OpenAI({
     baseURL: 'https://api.siliconflow.cn/v1',
     apiKey: process.env.SILICONFLOW_API_KEY,
+    // SDK 内置指数退避：自动重试 429/5xx/网络错误
+    maxRetries: 3,
+    timeout: 20_000,
 });
 
 // 嵌入服务配置

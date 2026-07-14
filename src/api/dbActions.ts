@@ -138,11 +138,14 @@ export const getRecordsActions = async (config: {
   desc?: Desc;
 }) => {
   const {
-    page_size = 30,
-    page = 1,
+    page_size: rawPageSize = 30,
+    page: rawPage = 1,
     filter,
     desc: sortDesc = Desc.DESC,
   } = config;
+  // 防止接口被要求一次拉取超大页导致全表扫描 + 海量 join
+  const page_size = Math.min(Math.max(1, Math.floor(rawPageSize)), 100);
+  const page = Math.max(1, Math.floor(rawPage));
   try {
     const filterConditions = filter ? buildWhereClause(filter) : [];
     const whereConditions = [

@@ -5,6 +5,9 @@ import { AIRequest, AIResponse, AIServiceError } from './types';
 const openai = new OpenAI({
     baseURL: process.env.AI_BASE_URL || 'https://api.siliconflow.cn/v1',
     apiKey: process.env.AI_API_KEY || process.env.SILICONFLOW_API_KEY,
+    // SDK 内置指数退避：自动重试 429/5xx/网络错误
+    maxRetries: 3,
+    timeout: 30_000,
 });
 
 const DEFAULT_AI_MODEL = process.env.AI_MODEL || 'deepseek-ai/DeepSeek-V4-Flash';

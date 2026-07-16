@@ -1,7 +1,9 @@
 'use client'
 import React from 'react';
+import { Footprints } from 'lucide-react';
 import { ModeToggle } from './ModeToggle';
 import { Setting } from './Setting';
+import useWalkStore from '@/store/walk';
 
 interface LeftSideProps {
   onInsightClick: () => void;
@@ -16,6 +18,7 @@ const LeftSide: React.FC<LeftSideProps> = ({
   hasInsights = false,
   onSearchClick
 }) => {
+  const startWalk = useWalkStore((s) => s.startWalk);
   return (
     <div
       className="
@@ -106,6 +109,25 @@ const LeftSide: React.FC<LeftSideProps> = ({
           </svg>
           <span className="text-xs text-muted-foreground group-hover/search:text-primary transition-colors">
             AI 搜索
+          </span>
+        </button>
+        {/* 漫游按钮 */}
+        <button
+          onClick={() => startWalk()}
+          className="
+            relative
+            flex flex-col items-center justify-center
+            w-full h-16 p-2
+            rounded-lg border border-border
+            bg-background hover:bg-accent
+            transition-all duration-200
+            group/walk
+          "
+          title="漫游 · 随机重逢过去的自己"
+        >
+          <Footprints className="w-5 h-5 mb-1 text-muted-foreground group-hover/walk:text-primary transition-colors" />
+          <span className="text-xs text-muted-foreground group-hover/walk:text-primary transition-colors">
+            漫游
           </span>
         </button>
       </div>

@@ -11,6 +11,7 @@ import useMemoStore from '@/store/memo';
 import { Button } from '../ui/button';
 import { Content } from '@/utils/parser';
 import useShareCardStore from '@/store/shareCard';
+import useWalkStore from '@/store/walk';
 import { deleteMemo, regenerateMemeTags } from '../../api/dbActions';
 import { Note } from '@/api/type';
 import { RelatedMemosDialog } from '../RelatedMemosDialog';
@@ -27,6 +28,7 @@ const MemoActionMenu = ({ memoId, originalMemo, onEdit, parsedContent }: Props) 
   const { toast } = useToast();
   const { removeMemo,  updateMemo } = useMemoStore();
   const { setOpen, setText } = useShareCardStore();
+  const startWalk = useWalkStore((s) => s.startWalk);
   const [relatedMemosOpen, setRelatedMemosOpen] = useState(false);
 
   const handleDelete = async () => {
@@ -129,6 +131,10 @@ const MemoActionMenu = ({ memoId, originalMemo, onEdit, parsedContent }: Props) 
           <DropdownMenuItem onClick={handleViewRelated}>
             <Icon.Link className="mr-2" size={16} />
             查看相关笔记
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => startWalk(memoId)}>
+            <Icon.Footprints className="mr-2" size={16} />
+            从这条漫游
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleDelete} className="text-red-600">

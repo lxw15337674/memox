@@ -10,7 +10,8 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Button } from './ui/button';
-import { Brain, Search, Loader2 } from 'lucide-react';
+import { Brain, Search, Loader2, Footprints } from 'lucide-react';
+import useWalkStore from '@/store/walk';
 
 interface Props {
   className?: string;
@@ -29,6 +30,8 @@ const MobileHeader = (props: Props) => {
     hasInsights = false,
     onSearchClick
   } = props;
+
+  const startWalk = useWalkStore((s) => s.startWalk);
 
   // 响应式由 Tailwind `md:hidden` 控制，避免 SSR/CSR 因 window 宽度不一致导致 hydration 报错
   return (
@@ -89,6 +92,13 @@ const MobileHeader = (props: Props) => {
                   <span className="text-sm">AI搜索</span>
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem
+                onClick={() => startWalk()}
+                className="flex items-center gap-2"
+              >
+                <Footprints className="w-3 h-3" />
+                <span className="text-sm">漫游</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}

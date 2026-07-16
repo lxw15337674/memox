@@ -6,6 +6,7 @@ import NewMemoEditor from './NewMemoEditor';
 import { ShareCardDialog } from '@/components/ShareCard/ShareCardDialog';
 import { AIInsightDialog } from '@/components/AIInsightDialog';
 import { AISearchDialog } from '@/components/AISearchDialog';
+import { RandomWalkDialog } from '@/components/RandomWalkDialog';
 import LeftSide from '@/components/LeftSide';
 import MemoFilter from '@/components/MemoFilter';
 import MobileHeader from '../src/components/MobileHeader';
@@ -71,6 +72,7 @@ export default function ClientLayout() {
                 open={searchDialogOpen}
                 onOpenChange={setSearchDialogOpen}
             />
+            <RandomWalkDialog />
 
             {/* 更新的侧边栏 - 移除AI洞察按钮 */}
             <div className="hidden md:flex h-screen overflow-hidden group flex-col justify-start items-start transition-all px-4 py-4 w-60 fixed right-0 top-0">

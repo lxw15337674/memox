@@ -1,7 +1,5 @@
 import {
   generateEmbedding,
-  parseEmbeddingFromTurso,
-  calculateCosineSimilarity,
   EmbeddingServiceError,
 } from '../../../../src/services/embeddingService';
 import { db, client } from '../../../../src/db';
@@ -9,37 +7,28 @@ import * as schema from '../../../../src/db/schema';
 import { and, eq, inArray, isNull, isNotNull, notInArray, sql } from 'drizzle-orm';
 
 // ── 漫游参数 ──────────────────────────────────────────────
-const WALK_MIN = 8; // 最短路径长度
-const WALK_MAX = 12; // 最长路径长度
-const TOP_K = 8; // 每跳向量近邻候选数
-const NEIGHBOR_MIN_SIMILARITY = 0.3; // 近邻最低相似度，低于此视为无近邻
-const EDGE_MIN_SIMILARITY = 0.6; // 语义边阈值（严格）
-const MAX_DEGREE = 5; // 每个节点总连线上限（含主链）
+const WALK_MIN = 8; // 最少节点数
+const WALK_MAX = 12; // 最多节点数
+const TOP_K = 8; // 每节点向量近邻候选数
+const NEIGHBOR_MIN_SIMILARITY = 0.3; // 子节点最低相似度
+const CHILD_MIN = 2; // 每节点最少子节点
+const CHILD_MAX = 3; // 每节点最多子节点
 
-// 路径上的一个节点
-interface WalkNode {
+// 树节点（服务端内部，含 embedding）
+interface TreeNode {
   id: string;
   content: string;
   createdAt: string;
   embedding: number[];
-  similarityToPrev: number | null; // 与上一跳的余弦相似度，起点为 null
-  isJump: boolean; // 是否为弱关联大跳
+  parentIndex: number; // 根为 -1
+  depth: number;
+  similarityToParent: number | null; // 根为 null
 }
 
-// 加权随机：权重正比于相似度，越近越可能但不必然，避免近似重复死循环
-function weightedPick<T>(items: T[], weightOf: (item: T) => number): T {
-  const weights = items.map((it) => Math.max(weightOf(it), 0.0001));
-  const total = weights.reduce((a, b) => a + b, 0);
-  let r = Math.random() * total;
-  for (let i = 0; i < items.length; i++) {
-    r -= weights[i];
-    if (r <= 0) return items[i];
-  }
-  return items[items.length - 1];
-}
+type NodeBase = Pick<TreeNode, 'id' | 'content' | 'createdAt' | 'embedding'>;
 
-// 用 drizzle 取某条笔记的完整节点（含 embedding，schema fromDriver 已转 number[]）
-async function fetchNodeById(id: string): Promise<Omit<WalkNode, 'similarityToPrev' | 'isJump'> | null> {
+// 用 drizzle 取某条笔记（含 embedding，schema fromDriver 已转 number[]）
+async function fetchNodeById(id: string): Promise<NodeBase | null> {
   const [row] = await db
     .select({
       id: schema.memos.id,
@@ -59,10 +48,8 @@ async function fetchNodeById(id: string): Promise<Omit<WalkNode, 'similarityToPr
   };
 }
 
-// 随机取一条未访问、且有 embedding 的笔记（起点 / 弱关联大跳）
-async function fetchRandomNode(
-  excludeIds: string[],
-): Promise<Omit<WalkNode, 'similarityToPrev' | 'isJump'> | null> {
+// 随机取一条未访问、且有 embedding 的笔记（起点）
+async function fetchRandomNode(excludeIds: string[]): Promise<NodeBase | null> {
   const [row] = await db
     .select({
       id: schema.memos.id,
@@ -90,7 +77,7 @@ async function fetchRandomNode(
   };
 }
 
-// 对当前 embedding 做向量近邻搜索，排除已访问，返回 top-K 候选（不含 embedding）
+// 向量近邻搜索，排除已访问，返回 top-K（按相似度降序，含相似度）
 async function findNeighbors(
   queryEmbedding: number[],
   excludeIds: string[],
@@ -122,7 +109,7 @@ async function findNeighbors(
     .filter((n) => n.similarity >= NEIGHBOR_MIN_SIMILARITY);
 }
 
-// 补齐路径上每条笔记的标签
+// 补齐每条笔记的标签
 async function fetchTagsForMemos(memoIds: string[]): Promise<Record<string, string[]>> {
   if (memoIds.length === 0) return {};
   const rows = await db
@@ -148,19 +135,15 @@ export async function POST(req: Request) {
     const startMemoId: string | undefined =
       typeof body.startMemoId === 'string' ? body.startMemoId : undefined;
 
-    // 目标长度：随机 8–12
-    const targetLength =
+    const target =
       WALK_MIN + Math.floor(Math.random() * (WALK_MAX - WALK_MIN + 1));
 
-    // 弱关联大跳落在中段
-    const jumpAt = Math.floor(targetLength / 2);
-
-    // ── 起点 ──────────────────────────────────────────────
-    let startBase: Omit<WalkNode, 'similarityToPrev' | 'isJump'> | null = null;
+    // ── 根节点 ────────────────────────────────────────────
+    let rootBase: NodeBase | null = null;
     if (startMemoId) {
-      startBase = await fetchNodeById(startMemoId);
-      // 起点缺 embedding：临时生成，不阻塞
-      if (!startBase) {
+      rootBase = await fetchNodeById(startMemoId);
+      // 起点缺 embedding：临时生成
+      if (!rootBase) {
         const [raw] = await db
           .select({
             id: schema.memos.id,
@@ -171,118 +154,97 @@ export async function POST(req: Request) {
           .where(and(eq(schema.memos.id, startMemoId), isNull(schema.memos.deletedAt)));
         if (raw && raw.content?.trim()) {
           const emb = await generateEmbedding(raw.content);
-          startBase = { ...raw, embedding: emb };
+          rootBase = { ...raw, embedding: emb };
         }
       }
     }
-    if (!startBase) {
-      startBase = await fetchRandomNode([]);
-    }
+    if (!rootBase) rootBase = await fetchRandomNode([]);
 
-    if (!startBase) {
+    if (!rootBase) {
       return Response.json(
         { error: '没有可漫游的笔记（需要至少一条带向量的笔记）' },
         { status: 404 },
       );
     }
 
-    // ── 链式游走 ──────────────────────────────────────────
-    const path: WalkNode[] = [
-      { ...startBase, similarityToPrev: null, isJump: false },
+    // ── BFS 关联树展开 ────────────────────────────────────
+    const nodes: TreeNode[] = [
+      { ...rootBase, parentIndex: -1, depth: 0, similarityToParent: null },
     ];
-    const visited = new Set<string>([startBase.id]);
+    const visited = new Set<string>([rootBase.id]);
+    const queue: number[] = [0];
 
-    while (path.length < targetLength) {
-      const current = path[path.length - 1];
-      const excludeIds = Array.from(visited);
-      const forceJump = path.length === jumpAt;
+    while (queue.length > 0 && nodes.length < target) {
+      const ci = queue.shift()!;
+      const cur = nodes[ci];
+      const neighbors = await findNeighbors(cur.embedding, Array.from(visited));
+      if (neighbors.length === 0) continue;
 
-      let nextBase: Omit<WalkNode, 'similarityToPrev' | 'isJump'> | null = null;
-      let isJump = false;
+      const remaining = target - nodes.length;
+      const wanted = CHILD_MIN + Math.floor(Math.random() * (CHILD_MAX - CHILD_MIN + 1));
+      const childN = Math.min(wanted, neighbors.length, remaining);
 
-      if (!forceJump) {
-        const neighbors = await findNeighbors(current.embedding, excludeIds);
-        if (neighbors.length > 0) {
-          const picked = weightedPick(neighbors, (n) => n.similarity);
-          nextBase = await fetchNodeById(picked.id);
-        }
+      for (let k = 0; k < childN; k++) {
+        const nb = neighbors[k];
+        const base = await fetchNodeById(nb.id);
+        if (!base) continue;
+        const idx = nodes.length;
+        nodes.push({
+          ...base,
+          parentIndex: ci,
+          depth: cur.depth + 1,
+          similarityToParent: nb.similarity,
+        });
+        visited.add(base.id);
+        queue.push(idx);
+        if (nodes.length >= target) break;
       }
-
-      // 强制大跳，或近邻枯竭 → 随机跳
-      if (!nextBase) {
-        nextBase = await fetchRandomNode(excludeIds);
-        isJump = true;
-      }
-
-      if (!nextBase) break; // 笔记不够，提前结束
-
-      const similarity = calculateCosineSimilarity(
-        current.embedding,
-        nextBase.embedding,
-      );
-      path.push({ ...nextBase, similarityToPrev: similarity, isJump });
-      visited.add(nextBase.id);
     }
 
     // ── 标签 ──────────────────────────────────────────────
-    const tagMap = await fetchTagsForMemos(path.map((n) => n.id));
+    const tagMap = await fetchTagsForMemos(nodes.map((n) => n.id));
 
-    // ── 最大跳跃点：相似度最低的一跳 ────────────────────────
-    let biggestJumpIndex = -1;
+    // ── 统计：最弱一跳 / 最深叶 ────────────────────────────
+    const hasChild = new Array(nodes.length).fill(false);
+    for (const n of nodes) if (n.parentIndex >= 0) hasChild[n.parentIndex] = true;
+
+    let weakestIndex = -1;
     let minSim = Infinity;
-    for (let i = 1; i < path.length; i++) {
-      const s = path[i].similarityToPrev ?? Infinity;
+    let deepestLeafIndex = 0;
+    let maxDepth = -1;
+    for (let i = 1; i < nodes.length; i++) {
+      const s = nodes[i].similarityToParent ?? Infinity;
       if (s < minSim) {
         minSim = s;
-        biggestJumpIndex = i;
+        weakestIndex = i;
+      }
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      if (hasChild[i]) continue; // 只看叶子
+      const d = nodes[i].depth;
+      if (d > maxDepth || (d === maxDepth && (nodes[i].similarityToParent ?? 1) < (nodes[deepestLeafIndex].similarityToParent ?? 1))) {
+        maxDepth = d;
+        deepestLeafIndex = i;
       }
     }
 
-    const totalChars = path.reduce((sum, n) => sum + (n.content?.length || 0), 0);
-
-    // ── 语义边：两两余弦 + 贪心 degree 限制 ──────────────────
-    // degree 起始计入主链（相邻对），端点 1、中间 2
-    const degree = new Array(path.length).fill(0);
-    for (let i = 1; i < path.length; i++) {
-      degree[i - 1]++;
-      degree[i]++;
-    }
-
-    // 候选语义边：非相邻对，sim ≥ 阈值，按相似度降序
-    const candidates: Array<{ source: number; target: number; similarity: number }> = [];
-    for (let i = 0; i < path.length; i++) {
-      for (let j = i + 2; j < path.length; j++) {
-        // j = i+1 是相邻对，已属主链，跳过
-        const sim = calculateCosineSimilarity(path[i].embedding, path[j].embedding);
-        if (sim >= EDGE_MIN_SIMILARITY) {
-          candidates.push({ source: i, target: j, similarity: sim });
-        }
-      }
-    }
-    candidates.sort((a, b) => b.similarity - a.similarity);
-
-    const edges: Array<{ source: number; target: number; similarity: number }> = [];
-    for (const c of candidates) {
-      if (degree[c.source] >= MAX_DEGREE || degree[c.target] >= MAX_DEGREE) continue;
-      edges.push(c);
-      degree[c.source]++;
-      degree[c.target]++;
-    }
+    const totalChars = nodes.reduce((sum, n) => sum + (n.content?.length || 0), 0);
 
     return Response.json({
-      path: path.map((n) => ({
+      nodes: nodes.map((n) => ({
         id: n.id,
         content: n.content,
         createdAt: n.createdAt,
         tags: tagMap[n.id] || [],
-        similarityToPrev: n.similarityToPrev,
-        isJump: n.isJump,
+        parentIndex: n.parentIndex,
+        depth: n.depth,
+        similarityToParent: n.similarityToParent,
       })),
-      edges,
       meta: {
         totalChars,
-        biggestJumpIndex,
-        length: path.length,
+        length: nodes.length,
+        weakestIndex,
+        deepestLeafIndex,
       },
       processingTime: (Date.now() - startTime) / 1000,
     });

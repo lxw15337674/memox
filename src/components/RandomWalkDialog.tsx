@@ -27,7 +27,6 @@ import useWalkStore from '@/store/walk';
 import {
   Loader2,
   Footprints,
-  Sparkles,
   X,
   RefreshCcw,
   Dices,
@@ -42,29 +41,25 @@ interface WalkNode {
   content: string;
   createdAt: string;
   tags: string[];
-  similarityToPrev: number | null;
-  isJump: boolean;
-}
-
-interface WalkEdge {
-  source: number;
-  target: number;
-  similarity: number;
+  parentIndex: number; // 根为 -1
+  depth: number;
+  similarityToParent: number | null; // 根为 null
 }
 
 interface WalkMeta {
   totalChars: number;
-  biggestJumpIndex: number;
   length: number;
+  weakestIndex: number; // 相似度最低的父子边（子节点下标）
+  deepestLeafIndex: number; // 最深的叶
 }
 
 type Phase = 'loading' | 'error' | 'canvas';
 
-// ── 布局常量（横向弧线图：卡片一排从左到右，语义边走弧线）────
+// ── 布局常量（整齐树：根在左，向右分层，兄弟纵向铺开）──────
 const CARD_W = 230;
 const CARD_H = 165;
-const COL_STRIDE = CARD_W + 60; // 列间步进（横向主轴，留弧线呼吸）
-const ARC_MAX = 200; // 语义弧线最大高度（卡片上下各留一条弧区）
+const COL_STRIDE = CARD_W + 90; // 层间步进（横向 = depth，留父子曲线空间）
+const ROW_STRIDE = CARD_H + 40; // 兄弟节点纵向间距
 const PAD = 70; // 画布内边距
 
 function formatDate(dateString: string): string {
@@ -97,15 +92,34 @@ function formatDuration(ms: number): string {
   return `${m}分${s}秒`;
 }
 
-// 横向弧线图：所有卡片同一水平基线，从左到右排开；语义边走弧线避开卡片
-function computeLayout(path: WalkNode[]) {
-  const baselineY = PAD + ARC_MAX; // 卡片基线，上方留弧区
-  const positions = path.map((_, i) => ({
-    x: i * COL_STRIDE + PAD,
-    y: baselineY,
-  }));
-  const width = (path.length - 1) * COL_STRIDE + CARD_W + PAD * 2;
-  const height = baselineY + CARD_H + ARC_MAX + PAD;
+// 整齐树布局：x = depth（根在左），y = 叶子顺序递归分配、内部节点取子节点均值
+function computeLayout(nodes: WalkNode[]) {
+  const children: number[][] = nodes.map(() => []);
+  nodes.forEach((n, i) => {
+    if (n.parentIndex >= 0) children[n.parentIndex].push(i);
+  });
+
+  const positions: Array<{ x: number; y: number }> = new Array(nodes.length);
+  let leafCursor = 0;
+
+  const assignY = (i: number): number => {
+    const ch = children[i];
+    let y: number;
+    if (ch.length === 0) {
+      y = leafCursor * ROW_STRIDE;
+      leafCursor++;
+    } else {
+      const ys = ch.map(assignY);
+      y = (ys[0] + ys[ys.length - 1]) / 2;
+    }
+    positions[i] = { x: nodes[i].depth * COL_STRIDE + PAD, y: y + PAD };
+    return y;
+  };
+  assignY(0);
+
+  const maxDepth = Math.max(...nodes.map((n) => n.depth));
+  const width = maxDepth * COL_STRIDE + CARD_W + PAD * 2;
+  const height = Math.max(...positions.map((p) => p.y)) + CARD_H + PAD;
   return { positions, width, height };
 }
 
@@ -114,8 +128,7 @@ export function RandomWalkDialog() {
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [error, setError] = useState<string | null>(null);
-  const [path, setPath] = useState<WalkNode[]>([]);
-  const [edges, setEdges] = useState<WalkEdge[]>([]);
+  const [nodes, setNodes] = useState<WalkNode[]>([]);
   const [meta, setMeta] = useState<WalkMeta | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
@@ -130,8 +143,7 @@ export function RandomWalkDialog() {
   const fetchWalk = useCallback(async () => {
     setPhase('loading');
     setError(null);
-    setPath([]);
-    setEdges([]);
+    setNodes([]);
     setMeta(null);
     setHoveredIndex(null);
     setPostcardOpen(false);
@@ -144,11 +156,10 @@ export function RandomWalkDialog() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '漫游失败');
-      if (!data.path || data.path.length === 0) {
+      if (!data.nodes || data.nodes.length === 0) {
         throw new Error('没有可漫游的笔记');
       }
-      setPath(data.path);
-      setEdges(Array.isArray(data.edges) ? data.edges : []);
+      setNodes(data.nodes);
       setMeta(data.meta);
       startTimeRef.current = Date.now();
       setPhase('canvas');
@@ -175,22 +186,24 @@ export function RandomWalkDialog() {
   }, [open, close]);
 
   const layout = useMemo(
-    () => (path.length > 0 ? computeLayout(path) : null),
-    [path],
+    () => (nodes.length > 0 ? computeLayout(nodes) : null),
+    [nodes],
   );
 
-  // 悬停某卡时，与之相连的节点集合（主链邻 + 语义边邻）；null=无悬停
+  // 悬停某卡时高亮：该节点 + 到根的祖先链 + 直接子节点
   const connected = useMemo(() => {
-    if (hoveredIndex == null) return null;
+    if (hoveredIndex == null || nodes.length === 0) return null;
     const set = new Set<number>([hoveredIndex]);
-    if (hoveredIndex > 0) set.add(hoveredIndex - 1);
-    if (hoveredIndex < path.length - 1) set.add(hoveredIndex + 1);
-    for (const e of edges) {
-      if (e.source === hoveredIndex) set.add(e.target);
-      if (e.target === hoveredIndex) set.add(e.source);
+    let p = nodes[hoveredIndex]?.parentIndex ?? -1;
+    while (p >= 0) {
+      set.add(p);
+      p = nodes[p].parentIndex;
     }
+    nodes.forEach((n, i) => {
+      if (n.parentIndex === hoveredIndex) set.add(i);
+    });
     return set;
-  }, [hoveredIndex, edges, path.length]);
+  }, [hoveredIndex, nodes]);
 
   // 按画布高度自适应缩放，保证整条河流纵向可见，只需横向拖动
   const fitScale = useCallback(() => {
@@ -218,24 +231,33 @@ export function RandomWalkDialog() {
 
   // 明信片统计
   const stats = useMemo(() => {
-    if (path.length === 0) return null;
-    const times = path
+    if (nodes.length === 0) return null;
+    const times = nodes
       .map((n) => new Date(n.createdAt).getTime())
       .filter((t) => !isNaN(t));
     const min = Math.min(...times);
     const max = Math.max(...times);
     const daySpan = Math.max(0, Math.round((max - min) / 86400000));
+
+    const deepIdx = meta?.deepestLeafIndex ?? nodes.length - 1;
+    const weakIdx = meta?.weakestIndex ?? -1;
+    const weakTo = weakIdx > 0 ? nodes[weakIdx] : null;
+    const weakFrom =
+      weakTo && weakTo.parentIndex >= 0 ? nodes[weakTo.parentIndex] : null;
+
     return {
       daySpan,
       fromDate: formatDot(new Date(min).toISOString()),
       toDate: formatDot(new Date(max).toISOString()),
-      first: path[0],
-      last: path[path.length - 1],
-      length: meta?.length ?? path.length,
+      first: nodes[0],
+      last: nodes[deepIdx],
+      length: meta?.length ?? nodes.length,
       totalChars: meta?.totalChars ?? 0,
-      jumpStep: meta?.biggestJumpIndex ?? 0,
+      weakFrom,
+      weakTo,
+      weakStep: weakTo?.depth ?? 0,
     };
-  }, [path, meta]);
+  }, [nodes, meta]);
 
   const handleShare = async () => {
     if (!postcardRef.current) return;
@@ -323,79 +345,51 @@ export function RandomWalkDialog() {
                 className="relative"
                 style={{ width: layout.width, height: layout.height }}
               >
-                {/* 连线层：语义弧线 + 主链直线 */}
+                {/* 连线层：父子曲线 */}
                 <svg
                   className="absolute inset-0 pointer-events-none"
                   width={layout.width}
                   height={layout.height}
                 >
-                  {/* 语义边：弧线，上下交替 */}
-                  {edges.map((e, idx) => {
-                    const a = layout.positions[e.source];
-                    const b = layout.positions[e.target];
-                    const x1 = a.x + CARD_W / 2;
-                    const x2 = b.x + CARD_W / 2;
-                    const up = idx % 2 === 0;
-                    const anchorY = up ? a.y : a.y + CARD_H; // 卡片上/下缘
-                    const depth = Math.min(ARC_MAX, (e.target - e.source) * 45 + 40);
-                    const cy = up ? anchorY - depth : anchorY + depth;
-                    const midX = (x1 + x2) / 2;
+                  {nodes.map((node, i) => {
+                    if (node.parentIndex < 0) return null;
+                    const a = layout.positions[node.parentIndex];
+                    const b = layout.positions[i];
+                    const x1 = a.x + CARD_W; // 父节点右缘
+                    const y1 = a.y + CARD_H / 2;
+                    const x2 = b.x; // 子节点左缘
+                    const y2 = b.y + CARD_H / 2;
+                    const mx = (x1 + x2) / 2;
+                    // 边高亮：两端都在高亮集合内（= 祖先链 / 直接子节点）
                     const active =
                       hoveredIndex == null ||
-                      e.source === hoveredIndex ||
-                      e.target === hoveredIndex;
-                    const base = 0.15 + ((e.similarity - 0.6) / 0.4) * 0.4;
+                      (!!connected && connected.has(i) && connected.has(node.parentIndex));
+                    const sim = node.similarityToParent ?? 0.5;
+                    const base = 0.2 + sim * 0.35;
                     const opacity =
-                      hoveredIndex == null ? base : active ? 0.9 : 0.04;
+                      hoveredIndex == null ? base : active ? 0.9 : 0.05;
                     return (
                       <path
-                        key={`e-${e.source}-${e.target}`}
-                        d={`M ${x1} ${anchorY} Q ${midX} ${cy} ${x2} ${anchorY}`}
+                        key={node.id}
+                        d={`M ${x1} ${y1} C ${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`}
                         fill="none"
                         stroke="currentColor"
                         strokeOpacity={opacity}
-                        strokeWidth={active && hoveredIndex != null ? 2 : 1.2}
-                        className="text-violet-400"
-                      />
-                    );
-                  })}
-
-                  {/* 主链：相邻直线 */}
-                  {path.map((node, i) => {
-                    if (i === 0) return null;
-                    const a = layout.positions[i - 1];
-                    const b = layout.positions[i];
-                    const y = a.y + CARD_H / 2;
-                    const active =
-                      hoveredIndex == null ||
-                      hoveredIndex === i ||
-                      hoveredIndex === i - 1;
-                    return (
-                      <line
-                        key={node.id}
-                        x1={a.x + CARD_W / 2}
-                        y1={y}
-                        x2={b.x + CARD_W / 2}
-                        y2={y}
-                        stroke={node.isJump ? '#f59e0b' : 'currentColor'}
-                        strokeOpacity={
-                          hoveredIndex != null && !active
-                            ? 0.05
-                            : node.isJump
-                              ? 0.9
-                              : 0.3
+                        strokeWidth={active && hoveredIndex != null ? 2.5 : 1.6}
+                        className={
+                          active && hoveredIndex != null
+                            ? 'text-violet-500'
+                            : 'text-zinc-400'
                         }
-                        strokeWidth={node.isJump ? 2.5 : 2}
-                        strokeDasharray={node.isJump ? '6 6' : undefined}
-                        className="text-zinc-400"
                       />
                     );
                   })}
                 </svg>
 
                 {/* 卡片 — 复用首页卡片样式 */}
-                {path.map((node, i) => {
+                {nodes.map((node, i) => {
                   const pos = layout.positions[i];
+                  const isRoot = node.parentIndex < 0;
                   return (
                     <button
                       key={node.id}
@@ -415,30 +409,25 @@ export function RandomWalkDialog() {
                       <Card
                         className={[
                           'h-full flex flex-col p-3 shadow-sm transition-shadow hover:shadow-md',
-                          node.isJump ? 'border-amber-400 ring-1 ring-amber-300' : '',
+                          isRoot ? 'border-primary ring-1 ring-primary/40' : '',
                         ].join(' ')}
                       >
-                        {/* 顶行：关联度 / 跳跃标记 */}
-                        {node.similarityToPrev !== null && (
-                          <div className="flex items-center justify-end gap-1 mb-1">
-                            {node.isJump && (
-                              <span className="flex items-center gap-0.5 text-[10px] text-amber-500">
-                                <Sparkles className="w-3 h-3" />
-                                跳跃
-                              </span>
-                            )}
-                            <span
-                              className={[
-                                'text-[11px] font-medium px-1.5 rounded-full',
-                                node.isJump
-                                  ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/40'
-                                  : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40',
-                              ].join(' ')}
-                            >
-                              {(node.similarityToPrev * 100).toFixed(0)}%
+                        {/* 顶行：起点标记 / 与父节点关联度 */}
+                        <div className="flex items-center justify-between gap-1 mb-1 min-h-[16px]">
+                          {isRoot ? (
+                            <span className="flex items-center gap-0.5 text-[10px] text-primary font-medium">
+                              <Footprints className="w-3 h-3" />
+                              起点
                             </span>
-                          </div>
-                        )}
+                          ) : (
+                            <span />
+                          )}
+                          {node.similarityToParent !== null && (
+                            <span className="text-[11px] font-medium px-1.5 rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40">
+                              {(node.similarityToParent * 100).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
 
                         {/* 正文（首页同款解析，隐藏行内 #标签） */}
                         <div className="flex-1 overflow-hidden">
@@ -485,9 +474,9 @@ export function RandomWalkDialog() {
             <DialogTitle className="flex items-center gap-2 text-sm text-muted-foreground font-normal">
               <Calendar className="w-4 h-4" />
               {expandNode && formatDate(expandNode.createdAt)}
-              {expandNode?.similarityToPrev != null && (
+              {expandNode?.similarityToParent != null && (
                 <span className="ml-1">
-                  关联度 {(expandNode.similarityToPrev * 100).toFixed(0)}%
+                  关联度 {(expandNode.similarityToParent * 100).toFixed(0)}%
                 </span>
               )}
             </DialogTitle>
@@ -556,7 +545,7 @@ export function RandomWalkDialog() {
                     <div className="text-xs text-muted-foreground">回顾的字数</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold">第 {stats.jumpStep} 步</div>
+                    <div className="text-2xl font-bold">第 {stats.weakStep} 层</div>
                     <div className="text-xs text-muted-foreground">跨度最大的一跳</div>
                   </div>
                 </div>

@@ -13,6 +13,8 @@ const WALK_MIN = 8; // 最短路径长度
 const WALK_MAX = 12; // 最长路径长度
 const TOP_K = 8; // 每跳向量近邻候选数
 const NEIGHBOR_MIN_SIMILARITY = 0.3; // 近邻最低相似度，低于此视为无近邻
+const EDGE_MIN_SIMILARITY = 0.6; // 语义边阈值（严格）
+const MAX_DEGREE = 5; // 每个节点总连线上限（含主链）
 
 // 路径上的一个节点
 interface WalkNode {
@@ -238,6 +240,35 @@ export async function POST(req: Request) {
 
     const totalChars = path.reduce((sum, n) => sum + (n.content?.length || 0), 0);
 
+    // ── 语义边：两两余弦 + 贪心 degree 限制 ──────────────────
+    // degree 起始计入主链（相邻对），端点 1、中间 2
+    const degree = new Array(path.length).fill(0);
+    for (let i = 1; i < path.length; i++) {
+      degree[i - 1]++;
+      degree[i]++;
+    }
+
+    // 候选语义边：非相邻对，sim ≥ 阈值，按相似度降序
+    const candidates: Array<{ source: number; target: number; similarity: number }> = [];
+    for (let i = 0; i < path.length; i++) {
+      for (let j = i + 2; j < path.length; j++) {
+        // j = i+1 是相邻对，已属主链，跳过
+        const sim = calculateCosineSimilarity(path[i].embedding, path[j].embedding);
+        if (sim >= EDGE_MIN_SIMILARITY) {
+          candidates.push({ source: i, target: j, similarity: sim });
+        }
+      }
+    }
+    candidates.sort((a, b) => b.similarity - a.similarity);
+
+    const edges: Array<{ source: number; target: number; similarity: number }> = [];
+    for (const c of candidates) {
+      if (degree[c.source] >= MAX_DEGREE || degree[c.target] >= MAX_DEGREE) continue;
+      edges.push(c);
+      degree[c.source]++;
+      degree[c.target]++;
+    }
+
     return Response.json({
       path: path.map((n) => ({
         id: n.id,
@@ -247,6 +278,7 @@ export async function POST(req: Request) {
         similarityToPrev: n.similarityToPrev,
         isJump: n.isJump,
       })),
+      edges,
       meta: {
         totalChars,
         biggestJumpIndex,

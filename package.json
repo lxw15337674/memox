@@ -68,6 +68,7 @@
     "react-dom": "19.2.3",
     "react-infinite-scroll-component": "^6.1.1",
     "react-photo-view": "^1.2.7",
+    "react-zoom-pan-pinch": "^4.0.3",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^2.6.1",
     "tailwindcss-animate": "^1.0.7",

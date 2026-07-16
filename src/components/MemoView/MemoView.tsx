@@ -17,7 +17,7 @@ interface MemoContentProps {
   content: string;
 }
 
-const MemoContent = React.memo(({ content }: MemoContentProps) => (
+export const MemoContent = React.memo(({ content }: MemoContentProps) => (
   <div className="text-sm space-y-1">
     {content.split('\n').map((text, index) => (
       <p key={index} className="whitespace-pre-wrap break-words leading-6">

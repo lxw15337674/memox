@@ -16,8 +16,8 @@
     "migrate:turso": "vite-node scripts/migrateToTurso.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.7",
-    "@ai-sdk/react": "^4.0.23",
+    "@ai-sdk/openai-compatible": "^3.0.10",
+    "@ai-sdk/react": "^4.0.30",
     "@github/relative-time-element": "^4.5.1",
     "@libsql/client": "^0.15.15",
     "@radix-ui/react-alert-dialog": "^1.1.19",
@@ -41,7 +41,7 @@
     "@types/lodash-es": "^4.17.12",
     "@vercel/functions": "^2.2.13",
     "ahooks": "^3.9.7",
-    "ai": "^7.0.22",
+    "ai": "^7.0.28",
     "axios": "^1.18.1",
     "canvas-confetti": "^1.9.4",
     "cheerio": "^1.2.0",

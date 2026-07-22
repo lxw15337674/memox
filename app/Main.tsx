@@ -1,11 +1,10 @@
 'use client';
-import MemoView from '@/components/MemoView/MemoView';
 import useMemoStore from '@/store/memo';
 import { useMount } from 'ahooks';
 import InfiniteScroll from 'react-infinite-scroll-component';
 import { useRouter } from 'next/navigation';
 import useConfigStore from '@/store/config';
-import SimpleMemoView from '../src/components/MemoView/SimpleMemoView';
+import WaterfallList from '../src/components/MemoView/WaterfallList';
 import { PhotoProvider } from 'react-photo-view';
 import useCountStore from '../src/store/count';
 
@@ -70,15 +69,7 @@ export default function Main() {
                 }
                 scrollThreshold={0.8}
             >
-                <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2'>
-                    {memos.map((memo) => (
-                        memo ? (
-                            isSimpleMode
-                                ? <SimpleMemoView {...memo} key={memo.id} />
-                                : <MemoView {...memo} key={memo.id} />
-                        ) : null
-                    ))}
-                </div>
+                <WaterfallList memos={memos} isSimpleMode={isSimpleMode} />
             </InfiniteScroll>
         </PhotoProvider>
     );
